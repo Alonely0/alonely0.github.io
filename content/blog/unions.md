@@ -180,7 +180,7 @@ union CellValue {
 
 Now we have to choose the bitmasks for the tags of each value. The `0b00` and `0b01` tags will be the fastest ones, so I will be giving them to `num` and `iter`, being the no-op one (`0b00`) for `num` because I'd rather not mess with it:
 ```rust
-const DEC_MASK: usize = 0b00;
+const NUM_MASK: usize = 0b00;
 const ITER_MASK: usize = 0b01;
 const STR_MASK: usize = 0b10;
 const FORMULA_MASK: usize = 0b11;
@@ -194,7 +194,7 @@ impl Value {
         self
     }
 
-    fn dec(dec: Dec) -> Self { Self { num: dec } }
+    fn num(dec: Decimal) -> Self { Self { num: dec } }
 
     fn str(str: ThinVec<u8>) -> Self {
         unsafe { Self { str: ManuallyDrop::new(str) }.tag(STR_MASK) }
