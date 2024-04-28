@@ -21,4 +21,8 @@ author = "alonely0"
 highlight_code = true
 
 [extra]
-# Put all your custom variables here
+list_pages = true
+toc = true
+display_author = true
+twitter_card = false
+
