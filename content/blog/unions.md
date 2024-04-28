@@ -1,9 +1,10 @@
 +++
-title = "Designing an efficient memory layout in Rust with unions, or, an overlong guide in avoiding dynamic dispatch"
-date = 2024-04-28
+title = "Designing an efficient memory layout in Rust with unsafe & unions, or, an overlong guide in avoiding dynamic dispatch"
+date = 2024-11-27
 +++
 
 ## Introduction
+First and foremost, this post is addressed to people already familiar with the Rust language, and knowledge of how typical Rust data structures are laid out in memory is certainly advised (though, everything is explained in detail just in case). However, I will not be assuming knowledge of how things work under-the-hood, and I will try my best to explain everything.
 
 This is the first blog post in a series of how to build a CLI spreadsheet program, mostly because I'm too tired of all other spreadsheets' deficiencies. In this blog post, I will be designing the memory layout of all spreadsheet cells value, so we should start with the question: What does a spreadsheet cell contain?
 * A number? Perhaps!
@@ -14,7 +15,7 @@ However, that is not just it. I am not aware if that is the case in Excel, but i
 
 ## A first attempt: dynamic dispatch
 
-A naive Rust programmer, probably someone who's just read the book and is likely to come from an OOP language, will raise their hands and shout: *"enums, teacher, enums!"*, and that would not be untrue. However, for educational purposes, we will start modeling this with dynamic dispatch; because as we will see in just a moment, its memory layout is very efficient (always two words/`usize`s). For starters, let's define a trait that models the behavior for any cell value:
+The naive approach, which is the one I'd recommend myself, would be to use `enum`s. However, for educational purposes, we will start modeling this with dynamic dispatch; because as we will see in just a moment, its memory layout is very efficient (always two words/`usize`s). For starters, let's define a trait that models the behavior for any cell value:
 ```rust
 trait CellValue: Display + Any {}
 ```
@@ -42,10 +43,10 @@ The most important conclusion we can draw is that `Iter` has two dynamic dispatc
                         functions it implements.
 ```
 
-However, the `Num` case is as big as a pointer, so perhaps we could include it inline, instead of allocating it! If only we had a way of distinguishing between those two cases^[1]... Not only that, but maybe we could use a `ThinVec` to store the `String`' contents, which would store all of its data (other than the pointer to the heap) inside its allocation (surprise! a `String` is just a `Vec<u8>`). That would only leave the `Formula` as a variant possibly bigger than a word, but I plan on it being inside a reference-counted allocation anyway (an `Rc` container), so in the future, it'll be just a pointer. That means that all allocations of `Box<dyn CellValue>` would just be... slow and needless indirections. There is a point why I started the article with `dyn`, even though it's the slowest and least idiomatic: it will always be two words, regardless of what we throw at it. From now on, our objective is to keep that while removing all of `dyn`'s unneecessary indirections.
+However, the `Num` case is as big as a pointer, so perhaps we could include it inline, instead of allocating it! If only we had a way of distinguishing between those two cases^[1]... Not only that, but maybe we could use a `ThinVec` to store the `String`' contents, which would also store its length and capacity inside its allocation (surprise! a `String` is just a `Vec<u8>`). That would only leave the `Formula` as a variant possibly bigger than a word, but I plan on it being inside a reference-counted allocation anyway (an `Rc` container), so in the future, it'll be just a pointer. That means that all allocations of `Box<dyn CellValue>` would just be... slow and needless indirections. There is a point why I started the article with `dyn`, even though it's the slowest and least idiomatic: it will always be two words, regardless of what we throw at it. From now on, our objective is to keep that while removing all of `dyn`'s unneecessary indirections.
 
 ## Enum dispatch
-This is what you should always try before resorting to dynamic dispatch. `enum_dispatch` is a useful crate in situations which you know all the types of a `dyn Trait`, as it automagically does the following:
+This is what you should always try before resorting to dynamic dispatch. `enum_dispatch` is a useful crate in situations where you know all the types of a `dyn Trait`, as it automagically does the following:
 ```rust
 enum CellValue {
     Num(f64),
@@ -74,11 +75,11 @@ The `todo!()` there is beacuse `Iter` has spooky action at a distance (meaning, 
                         or an Rc<Formula>.
 ```
 
-As you can see, we managed to keep the enum at two words (one for the value, one for the tag that tells which variant is inside), and by removing the heap allocations & pointers and the opaque function calls, it now is orders of magnitude faster. All the `Display::fmt()` functions are now static, and in the `enum`'s, we dispatch it to the implementation of the inner values using the tag (what `match` is doing). However, I lied before, our number is not a single word, it's going to be two (just like an u128), and for now we will call it `Long` to piss off all C programmers (IYKYK). That breaks our previous goal of keeping it at two words, since enums are as big as their bigger variant plus the tag, so it'd be three words:
+As you can see, we managed to keep the enum at two words (one for the value, one for the tag that tells which variant is inside), and by removing the heap allocations & pointers and the opaque function calls, it now is orders of magnitude faster. All the `Display::fmt()` functions are now static, and in the `enum`'s, we dispatch it to the implementation of the inner values using the tag (what `match` is doing). However, I lied before, our number is not a single word, it's going to be two (just like an u128), and for now we will call it `Long` to annoy C programmers (joke, IYKYK). That breaks our previous goal of keeping it at two words, since enums are as big as their bigger variant plus the tag, so it'd be three words:
 ```txt
 [ 64bits              | 64bits                | 64bits                ]
 |_____________________|_______________________|_______________________|
- Tag                    Half a Long, or a full  The other half of a                                    
+Tag                     Half a Long, or a full  The other half of a                                    
                         ThinVec<u8> or          `Long`, or nothing
                         Rc<Formula>.            otherwise.
 ```
@@ -106,7 +107,6 @@ If you've ever played with tagged pointers, perhaps you already know what we're 
 Thus, we can exploit these common unused bits to store the `enum`'s tag, and this is what the `tagged_pointer` crate will do for us. Explaining tagged pointers beyond the conceptual points is out of scope for this post, so I recommend you read `tagged_pointer`'s documentation and source if you're interested.
 
 ## Now with unions, also known as C's untagged enums or Friedrich Transmute.
-
 Unions are the backing data for enums, these allow you to define a space of data which may be used by a set of types; but only one at a time, and without taking note of which one it is. The Friederich Transmute pun comes from the fact that these effectively allow you to do the same as `std::mem::transmute`, since by accessing using a different type than what was written, you're reinterpreting the bytes of a type as a different one.
 
 For starters, let's copy our previous `enum`:
@@ -119,7 +119,7 @@ union CellValue {
 }
 ```
 
-The first thing we'll get is a screaming message from rustc telling is to wrap everything that's not `Copy` in a `ManuallyDrop<T>`. As it turns out, unions are one of the many reasons why destructors are just a suggestion in Rust, and that is what `ManuallyDrop<T>` does, remove the drop implementation from its inner. This is needed because there is no info for the compiler to codegen the drop of the union since it can't possibly know what's inside, so it nicely asks us not to ask it to do so. The next thing we'll do is add a field with a `TaggedPtr<Aligned, 2>` where `Aligned`'s align is two; so that we can use what's inside the union as a tagged pointer to get, set, and remove the tag. As it stands, we get the following:
+The first thing we'll get is a screaming message from rustc telling us to wrap everything that's not `Copy` in a `ManuallyDrop<T>`. As it turns out, unions are one of the many reasons why destructors are just a suggestion in Rust, and that is what `ManuallyDrop<T>` does, remove the drop implementation from its inner. This is needed because there is no info for the compiler to codegen the drop of the union since it can't possibly know what's inside, so it nicely asks us not to ask it to do so. The next thing we'll do is add a field with a `TaggedPtr<Aligned, 2>` where `Aligned`'s alignment is two; so that we can use what's inside the union as a tagged pointer to get, set, and remove the tag. As it stands, we get the following:
 
 ```rust
 union CellValue {
@@ -227,7 +227,7 @@ impl CellValue {
 }
 
 impl Value {
-    fn get_num(&mut self) -> Option<&mut Dec> {
+    fn get_num(&mut self) -> Option<&mut Decimal> {
         if unsafe { self.tag }.tag() == NUM_MASK {
             Some(unsafe { transmute(&mut *self) })
         } else {
@@ -243,7 +243,7 @@ impl Value {
 There's only one little thing that we are forgetting, the drop code. Because I left as an exercise for you creating a macro for accessing each field, I will do the same with the drop code that uses it (this is long enough, I'm tired).
 
 ## Conclusion
-Unions are not just an archaic tool from the forgotten era of Daniel Ritchie, they are still a very useful tool which can yield amazing results in the right han**Segmentation fault, (core dumped)**.
+Unions are not just an archaic tool from the long forgotten era of Daniel Ritchie, they are still a very useful tool which can yield amazing results in the right han**Segmentation fault (core dumped)**
 
 ---
 [1]: Note that this is what Niko Matsakis proposed with its [dyn* blog post](https://smallcultfollowing.com/babysteps/blog/2022/03/29/dyn-can-we-make-dyn-sized/), and we will be exploiting this later.
