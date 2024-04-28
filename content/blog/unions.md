@@ -243,7 +243,7 @@ impl Value {
 There's only one little thing that we are forgetting, the drop code. Because I left as an exercise for you creating a macro for accessing each field, I will do the same with the drop code that uses it (this is long enough, I'm tired).
 
 ## Conclusion
-Unions are not just an archaic tool from the long forgotten era of Daniel Ritchie, they are still a very useful tool which can yield amazing results in the right han**Segmentation fault (core dumped)**
+Unions are not just an archaic tool from the long forgotten era of Dennis Ritchie, they are still a very useful tool which can yield amazing results in the right han**Segmentation fault (core dumped)**
 
 ---
 [1]: Note that this is what Niko Matsakis proposed with its [dyn* blog post](https://smallcultfollowing.com/babysteps/blog/2022/03/29/dyn-can-we-make-dyn-sized/), and we will be exploiting this later.
