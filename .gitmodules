@@ -1,12 +1,4 @@
-[submodule "themes/d3c3nt"]
-	path = themes/d3c3nt
-	url = git://git.figbert.com/d3c3nt.git
-[submodule "themes/archie-zola"]
-	path = themes/archie-zola
-	url = https://github.com/XXXMrG/archie-zola.git
 [submodule "themes/anemone"]
 	path = themes/anemone
 	url = https://github.com/Speyll/anemone.git
-[submodule "themes/after-dark"]
-	path = themes/after-dark
-	url = https://github.com/getzola/after-dark.git
+
