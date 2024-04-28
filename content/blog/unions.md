@@ -1,6 +1,6 @@
 +++
 title = "Designing an efficient memory layout in Rust with unsafe & unions, or, an overlong guide in avoiding dynamic dispatch"
-date = 2024-11-27
+date = 2024-04-28
 +++
 
 ## Introduction
