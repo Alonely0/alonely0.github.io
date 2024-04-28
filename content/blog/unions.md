@@ -78,7 +78,7 @@ As you can see, we managed to keep the enum at two words (one for the value, one
 ```txt
 [ 64bits              | 64bits                | 64bits                ]
 |_____________________|_______________________|_______________________|
-Tag                     Half a Long, or a full  The other half of a                                    
+ Tag                    Half a Long, or a full  The other half of a                                    
                         ThinVec<u8> or          `Long`, or nothing
                         Rc<Formula>.            otherwise.
 ```
