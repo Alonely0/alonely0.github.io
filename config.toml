@@ -10,6 +10,11 @@ build_search_index = true
 # Theme selected
 theme = "anemone"
 
+# RSS feed
+generate_feed = true
+feed_filename = "rss.xml"
+author = "alonely0"
+
 [markdown]
 # Whether to do syntax highlighting
 # Theme can be customised by setting the `highlight_theme` variable to a theme supported by Zola
