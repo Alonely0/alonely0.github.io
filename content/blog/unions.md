@@ -43,7 +43,7 @@ The most important conclusion we can draw is that `Iter` has two dynamic dispatc
                         functions it implements.
 ```
 
-However, the `Num` case is as big as a pointer, so perhaps we could include it inline, instead of allocating it! If only we had a way of distinguishing between those two cases^[1]... Not only that, but maybe we could use a `ThinVec` to store the `String`' contents, which would also store its length and capacity inside its allocation (surprise! a `String` is just a `Vec<u8>`). That would only leave the `Formula` as a variant possibly bigger than a word, but I plan on it being inside a reference-counted allocation anyway (an `Rc` container), so in the future, it'll be just a pointer. That means that all allocations of `Box<dyn CellValue>` would just be... slow and needless indirections. There is a point why I started the article with `dyn`, even though it's the slowest and least idiomatic: it will always be two words, regardless of what we throw at it. From now on, our objective is to keep that while removing all of `dyn`'s unneecessary indirections.
+However, the `Num` case is as big as a pointer, so perhaps we could include it inline, instead of allocating it! If only we had a way of distinguishing between those two cases^[1]... Not only that, but maybe we could use a `ThinVec` to store the `String`' contents, which would also store its length and capacity inside its allocation (surprise! a `String` is just a `Vec<u8>`). That would only leave the `Formula` as a variant possibly bigger than a word, but I plan on it being inside a reference-counted allocation anyway (an `Rc` container), so in the future, it'll be just a pointer. That means that all allocations of `Box<dyn CellValue>` would just be... slow and needless indirections. There is a point why I started the article with `dyn`, even though it's the slowest and least idiomatic: it will always be two words, regardless of what we throw at it. From now on, our objective is to keep that while removing all of `Box<dyn ...>`'s unneecessary indirections.
 
 ## Enum dispatch
 This is what you should always try before resorting to dynamic dispatch. `enum_dispatch` is a useful crate in situations where you know all the types of a `dyn Trait`, as it automagically does the following:
@@ -84,7 +84,7 @@ Tag                     Half a Long, or a full  The other half of a
                         Rc<Formula>.            otherwise.
 ```
 
-That is a whole wasted word when the value is not a `Long`, we can do better than that! However, we will have to rely on a giant hack: our `Long` does not use its entire bit pattern. Otherwise, if it being just two words long was really necessary, or there was a very big variant in contrast to very small ones, the best approach would be to box said variant, which is still way more performant than `dyn` (so, as you can see, avoid it if you can).
+That is a whole wasted word when the value is not a `Long`, we can do better than that! However, we will have to rely on a giant hack: our `Long` does not use its entire bit pattern. Otherwise, if it being just two words long was really necessary, or there was a very big variant in contrast to very small ones, the best approach would be to box said variant, which is still way more performant than `Box<dyn ...>` (so, as you can see, avoid it if you can).
 
 ## The decimal number type, ft tagged pointers.
 That is the correct name for our `Long`, `Decimal`. It is a number like a floating-point one, but much more precise and suitable for financial computations. Its layout is as follows:
@@ -96,7 +96,7 @@ That is the correct name for our `Long`, `Decimal`. It is a number like a floati
 
 Although these first bits are unused, they're always zero, and the moment they're not, we may hit UB in the internal implementations of the number.
 
-If you've ever played with tagged pointers, perhaps you already know what we're getting into here. For any pointer, if the pointee has an alignment bigger than one, we can store as much data in the lower part of the pointer as its alignment. That is because in Rust, all reads are aligned, so data never exists outside its alignment. Note that this data must be removed before the pointee is read (for obvious reasons). From now on, all our cell values will be of alignment of two, so:
+If you've ever played with tagged pointers, perhaps you already know what we're getting into here. For any pointer, if the pointee has an alignment bigger than one, we can store as much data in the lower part of the pointer as its alignment. That is because in Rust, all safe reads are aligned, so we can assume that our values are aligned. Note that this data stored in the pointer must be removed before the pointee is read (for obvious reasons). From now on, all our cell values will be of alignment of two, so:
 ```txt
 [ 2bits | 62 bits              ... ]
 |_______|__________________________|
