@@ -6,7 +6,7 @@ date = 2024-04-28
 ## Introduction
 First and foremost, this post is addressed to people already familiar with the Rust language, and knowledge of how typical Rust data structures are laid out in memory is certainly advised (though, everything is explained in detail just in case). However, I will not be assuming knowledge of how things work under-the-hood, and I will try my best to explain everything.
 
-This is the first blog post in a series of how to build a CLI spreadsheet program, mostly because I'm too tired of all other spreadsheets' deficiencies. In this blog post, I will be designing the memory layout of all spreadsheet cells value, so we should start with the question: What does a spreadsheet cell contain?
+This is the first blog post in a series of how to build a CLI spreadsheet program, mostly because I'm too tired of all other spreadsheets' deficiencies. In this blog post, I will be designing the memory layout of each of the values in the spreadsheet's cells, so we should start with the question: What does a spreadsheet cell contain?
 * A number? Perhaps!
 * A string of characters? Perhaps!
 * A formula, which is itself a domain-specific-language? Perhaps!
