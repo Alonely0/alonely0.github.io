@@ -21,6 +21,7 @@ author = "alonely0"
 highlight_code = true
 
 [extra]
+favicon = "public/favicon.ico"
 list_pages = true
 toc = true
 display_author = true
