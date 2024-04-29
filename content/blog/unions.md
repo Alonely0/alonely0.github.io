@@ -87,6 +87,8 @@ Tag                     Half a Long, or a full  The other half of a
 That is a whole wasted word when the value is not a `Long`, we can do better than that! However, we will have to rely on a giant hack: our `Long` does not use its entire bit pattern. Otherwise, if it being just two words long was really necessary, or there was a very big variant in contrast to very small ones, the best approach would be to box said variant, which is still way more performant than `Box<dyn ...>` (so, as you can see, avoid it if you can).
 
 ## The decimal number type, ft tagged pointers.
+**Warning: from now on, the code may or may not only work on 64-bits little-endian architectures (basically all the widely used ones).**
+
 That is the correct name for our `Long`, `Decimal`. It is a number like a floating-point one, but much more precise and suitable for financial computations. Its layout is as follows:
 ```txt
 [ 15bits | 113 bits                                             ]
