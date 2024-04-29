@@ -87,7 +87,7 @@ Tag                     Half a Long, or a full  The other half of a
 That is a whole wasted word when the value is not a `Long`, we can do better than that! However, we will have to rely on a giant hack: our `Long` does not use its entire bit pattern. Otherwise, if it being just two words long was really necessary, or there was a very big variant in contrast to very small ones, the best approach would be to box said variant, which is still way more performant than `Box<dyn ...>` (so, as you can see, avoid it if you can).
 
 ## The decimal number type, ft tagged pointers.
-**Warning: from now on, the code may or may not only work on 64-bits little-endian architectures (basically all the widely used ones).**
+**Disclaimer: from now on, the code might only work on 64-bits little-endian architectures (basically all the widely used ones).**
 
 That is the correct name for our `Long`, `Decimal`. It is a number like a floating-point one, but much more precise and suitable for financial computations. Its layout is as follows:
 ```txt
@@ -188,7 +188,7 @@ const STR_MASK: usize = 0b10;
 const FORMULA_MASK: usize = 0b11;
 ```
 
-Because `TaggedPtr::new(ptr, tag)`'s is the way you construct a new one, we will have to figure out a way to have the `ptr` it gets to be the same as the low bits of our CellValue. The easiest way out of here would just be to use arguably the most unsafe function in all Rust, the chaotic sibling of Friedrich Transmute: `std::mem::transmute_copy`. This allows us to copy the CellValue's low 64 bits into `TaggedPtr::new()`'s first argument, which is likely to get optimized away after inlining:
+Because `TaggedPtr::new(ptr, tag)` is the way you construct a new one, we will have to figure out a way to have the `ptr` it gets to be the same as the low bits of our CellValue. The easiest way out of here would just be to use arguably the most unsafe function in all Rust, the chaotic sibling of Friedrich Transmute: `std::mem::transmute_copy`. This allows us to copy the CellValue's low 64 bits into `TaggedPtr::new()`'s first argument, which is likely to get optimized away after inlining:
 ```rust
 impl Value {
     unsafe fn tag(mut self, tag: usize) -> Self {
