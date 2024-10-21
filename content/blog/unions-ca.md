@@ -15,14 +15,14 @@ Tanmateix, això és només el començament. Altres programes de fulls de càlcu
 
 ## Un primer intent: delegació dinàmica
 
-Tot i que la manera més idiomàtica de representar les dades d'una cel·la en memòria seria emprar les enumeracions de Rust, per raons educacionals, començarem amb la tècnica de delegació dinàmica o *dynamic dispatch*, ja que com es podrà observar a continuació, la seva representació en memòria és increïblement eficient (dues paraules, o 128 bits). Aquesta tècnica requereix definir els trets comuns de totes les dades dins d'una *trait*, i permetrà tractar-les totes com una mateixa.
+Tot i que la manera més idiomàtica de representar les dades d'una cel·la en memòria seria emprar les enumeracions de Rust, per raons educacionals, es començarà amb la tècnica de delegació dinàmica o *dynamic dispatch*, ja que com es podrà observar a continuació, la seva representació en memòria és increïblement eficient (dues paraules, o 128 bits). Aquesta tècnica requereix definir els trets comuns de totes les dades dins d'una *trait*, i permetrà tractar-les totes com una mateixa.
 
 A més a més, com el propòsit d'aquest article és arribar a una implementació millor que la delegació dinàmica, és convenient definir-hi un punt de comparació. Per començar, es pot proposar la següent *trait*.
 ```rs
 trait Valor: Display + Any {}
 ```
 
-Com es pot apreciar, encara no hem definit cap mètode comú necessari, només que cal que implementin alguna manera de representar-se gràficament a la pantalla mitjançant `Display`. A més a més, es requereix que també compleixin els requisits d'`Any`, que els permet convertir-se d'un objecte de delegació dinàmica al seu tipus subjacent; emprant la tècnica d'abatiment o *downcasting*, es pot desar un identificador únic de cada tipus de dada amb la resta d'implementacions dinàmiques, i si es verifica de manera estàtica que aquest identificador és el mateix que un d'un tipus de dades ja conegut, és no hi ha cap risc en convertir-ho al seu homònim estàtic i concret.
+Com es pot apreciar, encara no s'ha definit cap mètode comú necessari; només que cal que implementin alguna manera de representar-se gràficament a la pantalla mitjançant `Display`. A més a més, es requereix que també compleixin els requisits d'`Any`, que els permet convertir-se d'un objecte de delegació dinàmica al seu tipus subjacent; emprant la tècnica d'abatiment o *downcasting*, es pot desar un identificador únic de cada tipus de dada amb la resta d'implementacions dinàmiques, i si es verifica de manera estàtica que aquest identificador és el mateix que un d'un tipus de dades ja conegut, és no hi ha cap risc en convertir-ho al seu homònim estàtic i concret.
 
 D'aquesta manera, es pot definir cada tipus concret:
 ```rust
@@ -72,17 +72,17 @@ impl Display for CellValue {
 }
 ```
 
-El `todo!()` que es troba a la branca d'`Iter`, que en angles significa *per fer*, el necessitem perquè encara no hem desenvolupat pas la seva implementació concreta. Tanmateix, ara cal analitzar la representació en memòria dels valors de `CellValue` en memòria:
+El `todo!()` que es troba a la branca d'`Iter`, que en angles significa *per fer*, es necessari perquè encara no s'ha desenvolupat pas la seva implementació concreta. Tanmateix, ara cal analitzar la representació en memòria dels valors de `CellValue` en memòria:
 ```txt
 [ 64 bits              | 64 bits               ]
 |______________________|_______________________|
  Etiqueta; indica        Un f64, un ThinVec<u8>
- l'element representat   o un Rc<Formula>.
+ l'element representat.  o un Rc<Formula>.
 ```
 
 Com es pot apreciar, aquesta enumeració preserva l'objectiu de no sobrepassar els 128 bits, i permet una execució d'ordres de magnitud més veloç atès al fet que no empra punters opacs per les funcions de la `trait` i les dades són a memòria immediata; les execucions de `Display::fmt()` ara són estàtiques, només cal escollir quina escau depenent de l'etiqueta de l'enumeració, cosa que fa l'expressió de `match`.
 
-Tot i això, cal esmentar que, per motius que es veuran a continuació, els tipus de nombres emprats al programa final no seran de 64 bits, sinó de 128, i de moment s'anomenaran `Long` (llarg en angles) per molestar als programadors del llenguatge C. D'aquesta manera, caldrà fer que l'enumeració sigui 64 bits més llarga, incomplint l'objectiu de mantenir-la a 128, i a més a més aquest espai només s'emprarà en el cas d'un nombre:
+Tot i això, cal esmentar que, per motius que es veuran a continuació, els tipus de nombres emprats al programa final no seran de 64 bits, sinó de 128, i de moment s'anomenaran `Long` (llarg en angles). D'aquesta manera, caldrà fer que l'enumeració sigui 64 bits més llarga, incomplint l'objectiu de mantenir-la a 128, i a més a més aquest espai només s'emprarà en el cas d'un nombre:
 
 ```txt
 [ 64bits              | 64bits                | 64bits                   ]
@@ -96,7 +96,7 @@ Tot i això, cal esmentar que, per motius que es veuran a continuació, els tipu
 Per tant, s'està desaprofitant 64 bits per cada valor que no és un nombre, i això s'ha de millorar, cosa que podem fer per un simple motiu: `Long` no empra tots els seus bits.
 
 ## El nombre decimal i punters etiquetats.
-**Renúncia de responsabilitat: A partir d'aquest punt, el codi pot ser invàlid a certes arquitectures, com les de 32 bits.**
+**Renúncia de responsabilitat: A partir d'aquest punt, el codi pot ser invàlid a certes arquitectures.**
 
 El nom correcte pel `Long` emprat fins ara és `Decimal`, un nombre com els de punt flotant--com ara `f64`--però molt més precís i que es pot emprar a càlculs financers. La seva representació en memòria és la següent:
 ```txt
@@ -132,7 +132,8 @@ union CellValue {
 
 ### Implementant manualment la delegació dinàmica d'`Iter`.
 
-Abans de continuar, cal desxifrar el significat de `Box<dyn T>`, perquè així es trobarà que es pot eliminar una indirecta de 64 bits: la taula de funcions dinàmiques. Tot i que un iterador consta de més de vuitanta funcions que segurament emprarem, totes aquestes també tenen una definició general, excepte una: `Iterator::next()`, que avança els elements dins d'aquest. Per tant, desarem el punter opac a aquesta funció en comptes de la taula dinàmica sencera, i emprarem el compilador per a generar estàticament la resta de funcions a partir d'aquesta. Primer, es definiran manualment les dades:
+Abans de continuar, cal desxifrar el significat de `Box<dyn T>`, perquè així es trobarà que es pot eliminar una indirecta de 64 bits: la taula de funcions dinàmiques. Tot i que un iterador consta de més de vuitanta funcions que segurament es faran servir més endavant, totes aquestes també tenen una definició general, excepte per una: `Iterator::next()`, que avança els elements dins d'aquest. Per tant, es desarà el punter opac a aquesta funció en comptes de la taula dinàmica sencera, i s'emprarà el compilador per a generar estàticament la resta de funcions a partir d'aquesta. Primer, es definiran manualment les dades:
+
 ```rust
 struct DynIter {
     dades: TaggedPtr<Aligned, 2>,
@@ -178,7 +179,7 @@ union CellValue {
 
 ### Configurant TaggedPtr
 
-Cal recordar que s'ha d'escollir les màscares de bits emprades pels diferents valors de la unió. Com `0b00` i `0b01` són les més ràpides a quasi tots els processadors, s'assignaran als nombres i als iteradors, els tipus de dades més comunes. A més a més, s'assignarà la càrrega nul·la `0b00` al nombre decimal, ja que ens permetrà córrer menys riscos d'errors amb els seus bits interns:
+Cal recordar que s'ha d'escollir les màscares de bits emprades pels diferents valors de la unió. Com `0b00` i `0b01` són les més ràpides a quasi tots els processadors, s'assignaran als nombres i als iteradors, els tipus de dades més comunes. A més a més, s'assignarà la càrrega nul·la `0b00` al nombre decimal, ja que reduirà els possibles riscos d'errors amb els seus bits interns:
 ```rust
 const MÀSCARA_NOMBRE: usize = 0b00;
 const MÀSCARA_ITER: usize = 0b01;
@@ -205,7 +206,7 @@ impl Value {
     }
 }
 ```
-L'última cosa que es mostrarà en aquest article és com aconseguir-hi el valor real de les unions, i això es pot aconseguir verificant l'etiqueta:
+L'última cosa que es mostrarà en aquest article és com trobar-hi el valor real dins de les unions, i això es pot aconseguir verificant l'etiqueta:
 ```rust
 impl CellValue {
     pub fn get_value(&mut self) -> Option<&mut Value> {
