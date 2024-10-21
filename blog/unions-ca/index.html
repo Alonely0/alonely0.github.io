@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+<meta content="IE=edge" http-equiv="X-UA-Compatible"/>
+<meta content="text/html; charset=UTF-8" http-equiv="content-type"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<meta name="robots" content="index, follow">
+
+
+
+
+
+
+
+
+
+
+
+
+<title>Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul</title>
+
+
+
+<meta name="title" content="Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul">
+
+
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alonely0.github.io/blog/unions-ca/">
+
+<meta property="og:site_name" content="">
+
+
+<meta property="og:title" content="Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul">
+
+
+
+<meta property="og:image" content="https:&#x2F;&#x2F;alonely0.github.io&#x2F;public&#x2F;favicon.ico">
+
+
+
+<link rel="canonical" href="https://alonely0.github.io/blog/unions-ca/">
+
+<link rel="shortcut icon" type="image/x-icon" href="https://alonely0.github.io/public/favicon.ico">
+
+
+
+
+<link rel="alternate" type="application/atom+xml" title="RSS" href="https://alonely0.github.io/atom.xml"> 
+
+
+
+<link rel="stylesheet" type="text/css" href="https://speyll.github.io/suCSS/reset-min.css"/>
+<link rel="stylesheet" type="text/css" href="https://speyll.github.io/suCSS/suCSS-min.css"/>
+<link rel="stylesheet" type="text/css" href="https://alonely0.github.io/css/style.css"/>
+
+<script src="https://alonely0.github.io/js/script.js" defer></script>
+
+
+</head>
+<body>
+      <header>
+          
+
+  
+
+
+
+      </header>
+      <main>
+          
+<div><a href="..">..</a>/<span class="accent-data">unions-ca</span></div>
+<time datetime="2024-10-21">Published on: <span class="accent-data">2024-10-21</span></time>
+
+<h1>Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul</h1>
+
+
+
+<h2 id="introduccio">Introducció</h2>
+<p>Primer de tot, aquest article s'adreça a un públic ja familiaritzat amb el llenguatge de programació Rust, i tenir coneixements previs de com les dades es troben a la memòria de l'ordinador és certament recomanable, tot i que els detalls de com funcionen les coses s'explicaran sempre que calgui.</p>
+<p>Aquest és el primer article d'una nova sèrie on es detallarà com escriure un programa de fulls de càlculs d'interfície <em>CLI</em>, sent la motivació de l'autor les deficiències de tots els que ha fet servir. Concretament, es començarà a escriure aquest nou programa dissenyant la distribució en memòria dels valors que trobem a cada cel·la, i per tant cal saber quins valors pot ser que hi hagi a aquestes.</p>
+<ul>
+<li>Un nombre? Potser.</li>
+<li>Una cadena de caràcters? Potser.</li>
+<li>Una fórmula matemàtica? Potser.</li>
+</ul>
+<p>Tanmateix, això és només el començament. Altres programes de fulls de càlcul--com ara Google Docs--suporten fórmules que produeixen matrius (és a dir, diferents cel·les), i  trobem que els valors d'una cel·la es poden trobar sobreescrits pels d'una altra; així doncs, el valor d'una cel·la pot ser el que se l'ha assignat, o un produït per una matriu. El programa esmentat anteriorment, Google Docs, els distingeix, però per simplicitat, això no s'implementarà pas. A més a més, l'autor vol recalcar que el disseny principal d'aquest programa es fonamentarà en formules que treballin amb matrius, de manera contrària a altres fulls de càlcul.</p>
+<h2 id="un-primer-intent-delegacio-dinamica">Un primer intent: delegació dinàmica</h2>
+<p>Tot i que la manera més idiomàtica de representar les dades d'una cel·la en memòria seria emprar les enumeracions de Rust, per raons educacionals, es començarà amb la tècnica de delegació dinàmica o <em>dynamic dispatch</em>, ja que com es podrà observar a continuació, la seva representació en memòria és increïblement eficient (dues paraules, o 128 bits). Aquesta tècnica requereix definir els trets comuns de totes les dades dins d'una <em>trait</em>, i permetrà tractar-les totes com una mateixa.</p>
+<p>A més a més, com el propòsit d'aquest article és arribar a una implementació millor que la delegació dinàmica, és convenient definir-hi un punt de comparació. Per començar, es pot proposar la següent <em>trait</em>.</p>
+<pre data-lang="rs" style="background-color:#2b303b;color:#c0c5ce;" class="language-rs "><code class="language-rs" data-lang="rs"><span style="color:#b48ead;">trait </span><span>Valor: Display + Any {}
+</span></code></pre>
+<p>Com es pot apreciar, encara no s'ha definit cap mètode comú necessari; només que cal que implementin alguna manera de representar-se gràficament a la pantalla mitjançant <code>Display</code>. A més a més, es requereix que també compleixin els requisits d'<code>Any</code>, que els permet convertir-se d'un objecte de delegació dinàmica al seu tipus subjacent; emprant la tècnica d'abatiment o <em>downcasting</em>, es pot desar un identificador únic de cada tipus de dada amb la resta d'implementacions dinàmiques, i si es verifica de manera estàtica que aquest identificador és el mateix que un d'un tipus de dades ja conegut, és no hi ha cap risc en convertir-ho al seu homònim estàtic i concret.</p>
+<p>D'aquesta manera, es pot definir cada tipus concret:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">type </span><span>ValorDinàmic = Box&lt;dyn Valor&gt;;
+</span><span style="color:#b48ead;">struct </span><span>Nombre(</span><span style="color:#b48ead;">f64</span><span>);
+</span><span style="color:#b48ead;">struct </span><span>Caràcters(String);
+</span><span style="color:#b48ead;">struct </span><span>Fòrmula; </span><span style="color:#65737e;">// To-do
+</span><span style="color:#b48ead;">struct </span><span>Iterador(Box&lt;dyn Iterator&lt;Item = ValorDinàmic&gt;);
+</span><span>
+</span><span style="color:#65737e;">// Les implementacions manuals de `Display` i `Valor` es
+</span><span style="color:#65737e;">// deixen com un exercici per al lector.
+</span></code></pre>
+<p>D'aquesta manera, la conclusió més important que es pot fer és el fet que l'<code>Iterador</code> requereix dos punters dinàmics, un per ell mateix i un altre pels valors que produeix. Abans de discutir perquè això no és pas una bona arquitectura, s'analitzarà la representació d'un objecte de delegació dinàmica d'un <code>Valor</code>:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 64 bits              | 64 bits               ]
+</span><span>|______________________|_______________________|
+</span><span> Punter a memòria heap, Punter a la taula dinàmica
+</span><span> on hi ha les dades     on es troben els punters
+</span><span> concretes.             a les implementacions
+</span><span>                        concretes de les dades.
+</span></code></pre>
+<p>Per tant, la delegació dinàmica sempre ocupa dues paraules o 128 bits, i redueix la quantitat de trànsit de memòria sempre que les dades ocupin menys de 64 bits. Tot i això, els nombres són exactament una paraula, i es guanyaria molt rendiment si es poguessin emmagatzemar sense cap indirecta^[1]. A més a més, tot i que els caràcters ocupen tres paraules, la implementació de vectors prims o <em><code>ThinVec</code></em> les redueix a una (es recorda que una <code>String</code> és equivalent a un <code>Vec&lt;u8&gt;</code>). Això només deixa les fórmules com una possible dada que sobrepassi aquests 64 bits, però com veurem a articles posteriors, aquesta s'emmagatzemarà dins de la indirecta d'un contenidor compta-referències o <code>Rc</code>, que també ocupa sempre 64 bits.</p>
+<p>Així doncs, es pot concloure que totes les indirectes de delegació dinàmica serien innecessàries i lentes, però, tot i això, com els fulls de càlcul poden arribar a treballar amb milers de milions de cel·les, escau que els seus valors ocupin el menys possible. Per tant, l'objectiu d'aquest article a partir d'ara serà aconseguir millors resultats en rendiment que la delegació dinàmica sense ocupar més memòria.</p>
+<h2 id="delegacio-d-enumeracio">Delegació d'enumeració</h2>
+<p>Aquest mètode és el que s'hauria d'emprar en comptes de la delegació dinàmica, ja que no només és molt més idiomàtic al llenguatge Rust, sinó que, a més a més, ofereix un rendiment molt superior. Llibreries com <code>enum_dispatch</code> permeten automatitzar aquest procediment, que cal recordar que només es pot utilitzar quan tots els tipus que han d'implementar la <code>trait</code> es coneixen--cosa que aquí és ben certa. Concretament, <code>enum_dispatch</code> generaria la implementació de <code>Display</code> per cadascun dels elements de <code>CellValue</code>:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">enum </span><span>CellValue {
+</span><span>    Num(</span><span style="color:#b48ead;">f64</span><span>),
+</span><span>    Str(ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;),
+</span><span>    Formula(Rc&lt;Formula&gt;),
+</span><span>    Iter(Box&lt;dyn Iterator&lt;Item = CellValue&gt;&gt;),
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">impl </span><span>Display </span><span style="color:#b48ead;">for </span><span>CellValue {
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">fmt</span><span>(&amp;</span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">f</span><span>: ...) -&gt; ... {
+</span><span>        </span><span style="color:#b48ead;">match </span><span style="color:#bf616a;">self </span><span>{
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Num(x) =&gt; x.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Str(s) =&gt; s.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Formula(o) =&gt; o.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Iter(i) =&gt; todo!(),
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>El <code>todo!()</code> que es troba a la branca d'<code>Iter</code>, que en angles significa <em>per fer</em>, es necessari perquè encara no s'ha desenvolupat pas la seva implementació concreta. Tanmateix, ara cal analitzar la representació en memòria dels valors de <code>CellValue</code> en memòria:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 64 bits              | 64 bits               ]
+</span><span>|______________________|_______________________|
+</span><span> Etiqueta; indica        Un f64, un ThinVec&lt;u8&gt;
+</span><span> l&#39;element representat.  o un Rc&lt;Formula&gt;.
+</span></code></pre>
+<p>Com es pot apreciar, aquesta enumeració preserva l'objectiu de no sobrepassar els 128 bits, i permet una execució d'ordres de magnitud més veloç atès al fet que no empra punters opacs per les funcions de la <code>trait</code> i les dades són a memòria immediata; les execucions de <code>Display::fmt()</code> ara són estàtiques, només cal escollir quina escau depenent de l'etiqueta de l'enumeració, cosa que fa l'expressió de <code>match</code>.</p>
+<p>Tot i això, cal esmentar que, per motius que es veuran a continuació, els tipus de nombres emprats al programa final no seran de 64 bits, sinó de 128, i de moment s'anomenaran <code>Long</code> (llarg en angles). D'aquesta manera, caldrà fer que l'enumeració sigui 64 bits més llarga, incomplint l'objectiu de mantenir-la a 128, i a més a més aquest espai només s'emprarà en el cas d'un nombre:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 64bits              | 64bits                | 64bits                   ]
+</span><span>|_____________________|_______________________|__________________________|
+</span><span> Etiqueta               Meitat d&#39;un Long, o     L&#39;altra meitat d&#39;un Long,
+</span><span>                        un ThinVec&lt;u8&gt;,         o res sinó.
+</span><span>                        ThinVec&lt;u8&gt; o
+</span><span>                        Rc&lt;Formula&gt; sencers.
+</span></code></pre>
+<p>Per tant, s'està desaprofitant 64 bits per cada valor que no és un nombre, i això s'ha de millorar, cosa que podem fer per un simple motiu: <code>Long</code> no empra tots els seus bits.</p>
+<h2 id="el-nombre-decimal-i-punters-etiquetats">El nombre decimal i punters etiquetats.</h2>
+<p><strong>Renúncia de responsabilitat: A partir d'aquest punt, el codi pot ser invàlid a certes arquitectures.</strong></p>
+<p>El nom correcte pel <code>Long</code> emprat fins ara és <code>Decimal</code>, un nombre com els de punt flotant--com ara <code>f64</code>--però molt més precís i que es pot emprar a càlculs financers. La seva representació en memòria és la següent:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 15bits | 113 bits                                             ]
+</span><span>|________|______________________________________________________|
+</span><span> Buit.     Dades internes del nombre, irrelevant.
+</span></code></pre>
+<p>Encara que aquests primers 15 bits no s'empren pas, escau que sempre siguin zero perquè el moment que no ho siguin, les implementacions internes del nombre poden arribar a comportaments invàlids.</p>
+<p>Si el lector alguna vegada ha fet servir punters etiquetats, segurament ja n'és conscient de quina cosa es mostrarà: per a qualsevol punter, si l'element al qual apunta té una alineació superior a 1, podem desar-hi tanta informació com el valor d'aquesta, ja que els bits menys significats coincidents amb l'alineació sempre seran 0. Cal anotar que si s'altera aquesta informació. Si es considera que totes les dades tindran una alineació d'almenys 2, i es troba que les dades són un punter o un nombre decimal, es troba que sempre es complirà la següent relació:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 2bits |  ...  ]
+</span><span>|_______|_______|
+</span><span> Zero.    Dades.
+</span></code></pre>
+<p>Per tant, es poden explotar aquests bits per desar-hi l'etiqueta de l'enumeració, en comptes d'emprar una paraula sencera (64 bits). A l'hora de fer-ho, s'emprarà la llibreria de <code>tagged_pointer</code>, ja que el funcionament d'això es fora de l'abast d'aquest escrit.</p>
+<h2 id="ara-amb-unions-les-enumeracions-sense-etiquetes-de-c">Ara amb unions, les enumeracions sense etiquetes de C.</h2>
+<p>Les unions són l'eina emprada per implementar enumeracions estàndards, i permeten definir un espai de memòria que pot estar ocupat per múltiples elements, però només un a la vegada. D'aquesta manera, també poden transmutar-hi dades, ja que es permet llegir una dada A com a una de B.</p>
+<p>Per començar, es redefinirà l'enumeració anterior com una unió, cal dir que s'ha d'afegir <code>ManuallyDrop&lt;T&gt;</code> si escau. A més a més, s'afegirà una definició de l'etiqueta emprant <code>TaggedPtr&lt;N, T&gt;</code>, perquè ens permet transmutar la memòria i llegir l'etiqueta directament.</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span>union CellValue {
+</span><span>    num: Decimal,
+</span><span>    </span><span style="color:#b48ead;">str</span><span>: ManuallyDrop&lt;ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;&gt;,
+</span><span>    formula: ManuallyDrop&lt;Rc&lt;Formula&gt;&gt;,
+</span><span>    iter: ManuallyDrop&lt;Box&lt;dyn Iterator&lt;Item = CellValue&gt;&gt;&gt;,
+</span><span>}
+</span></code></pre>
+<h3 id="implementant-manualment-la-delegacio-dinamica-d-iter">Implementant manualment la delegació dinàmica d'<code>Iter</code>.</h3>
+<p>Abans de continuar, cal desxifrar el significat de <code>Box&lt;dyn T&gt;</code>, perquè així es trobarà que es pot eliminar una indirecta de 64 bits: la taula de funcions dinàmiques. Tot i que un iterador consta de més de vuitanta funcions que segurament es faran servir més endavant, totes aquestes també tenen una definició general, excepte per una: <code>Iterator::next()</code>, que avança els elements dins d'aquest. Per tant, es desarà el punter opac a aquesta funció en comptes de la taula dinàmica sencera, i s'emprarà el compilador per a generar estàticament la resta de funcions a partir d'aquesta. Primer, es definiran manualment les dades:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">struct </span><span>DynIter {
+</span><span>    </span><span style="color:#bf616a;">dades</span><span>: TaggedPtr&lt;Aligned, 2&gt;,
+</span><span>    </span><span style="color:#bf616a;">next</span><span>: NonNull&lt;()&gt;, </span><span style="color:#65737e;">// El punter mai sera nul
+</span><span>}
+</span></code></pre>
+<p>Ara s'utilitzaran les eines del compilador per generar-hi la resta de funcions:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">impl </span><span>Iterator </span><span style="color:#b48ead;">for </span><span>DynIter {
+</span><span>    </span><span style="color:#b48ead;">type </span><span>Item = CellValue;
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">next</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) -&gt; Option&lt;</span><span style="color:#b48ead;">Self::</span><span>Item&gt; {
+</span><span>        </span><span style="color:#b48ead;">type </span><span>NextFn = </span><span style="color:#b48ead;">for</span><span>&lt;</span><span style="color:#b48ead;">&#39;a</span><span>&gt; </span><span style="color:#b48ead;">fn</span><span>(&amp;</span><span style="color:#b48ead;">&#39;a mut</span><span> Aligned) -&gt; CellValue;
+</span><span>        </span><span style="color:#b48ead;">unsafe </span><span>{ transmute::&lt;_, NextFn&gt;(</span><span style="color:#bf616a;">self</span><span>.next)(</span><span style="color:#bf616a;">self</span><span>.data.</span><span style="color:#96b5b4;">ptr</span><span>().</span><span style="color:#96b5b4;">as_mut</span><span>()) }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Prenent avantatge d'això, es reestructurarà les unions anteriors per a limitar quan un valor serà un iterador, cosa que serà útil a articles posteriors:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">const </span><span style="color:#d08770;">MASK_BITS</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">2</span><span>;
+</span><span>
+</span><span>union Value {
+</span><span>    tag: TaggedPtr&lt;Aligned, MASK_BITS&gt;,
+</span><span>    num: Decimal,
+</span><span>    </span><span style="color:#b48ead;">str</span><span>: ManuallyDrop&lt;ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;&gt;,
+</span><span>    formula: ManuallyDrop&lt;Rc&lt;Formula&gt;&gt;,
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>DynIter {
+</span><span>    </span><span style="color:#bf616a;">data</span><span>: TaggedPtr&lt;Aligned, MASK_BITS&gt;,
+</span><span>    </span><span style="color:#bf616a;">next</span><span>: NonNull&lt;()&gt;,
+</span><span>}
+</span><span>
+</span><span>union CellValue {
+</span><span>    tag: TaggedPtr&lt;Aligned, MASK_BITS&gt;,
+</span><span>    value: ManuallyDrop&lt;Value&gt;,
+</span><span>    iter: ManuallyDrop&lt;DynIter&gt;,
+</span><span>}
+</span></code></pre>
+<h3 id="configurant-taggedptr">Configurant TaggedPtr</h3>
+<p>Cal recordar que s'ha d'escollir les màscares de bits emprades pels diferents valors de la unió. Com <code>0b00</code> i <code>0b01</code> són les més ràpides a quasi tots els processadors, s'assignaran als nombres i als iteradors, els tipus de dades més comunes. A més a més, s'assignarà la càrrega nul·la <code>0b00</code> al nombre decimal, ja que reduirà els possibles riscos d'errors amb els seus bits interns:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">const </span><span style="color:#d08770;">MÀSCARA_NOMBRE</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0b00</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">MÀSCARA_ITER</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0b01</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">MÀSCARA_STR</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0b10</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">MÀSCARA_FÒRMULA</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0b11</span><span>;
+</span></code></pre>
+<p>Com la manera de construir-hi un <code>TaggedPtr&lt;N, T&gt;</code> és la funció <code>TaggedPtr::new(ptr, tag)</code>, s'hauran d'aconseguir els 64 bits menys significants del <code>CellValue</code>, i per aquest propòsit es pot emprar una còpia transmutativa via <code>std::mem::transmute_copy(t)</code>; concretament, aquesta funció permet copiar-hi dades de llocs de mides diferents reinterpretar-ne els bits, essent aquesta la manera més <em>ad hoc</em> de fer-ho en aquest cas:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">impl </span><span>Value {
+</span><span>    </span><span style="color:#b48ead;">unsafe fn </span><span style="color:#8fa1b3;">tag</span><span>(</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">tag</span><span>: </span><span style="color:#b48ead;">usize</span><span>) -&gt; </span><span style="color:#b48ead;">Self </span><span>{
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.tag = TaggedPtr::new(</span><span style="color:#96b5b4;">transmute_copy</span><span>(&amp;</span><span style="color:#bf616a;">self</span><span>), tag);
+</span><span>        </span><span style="color:#bf616a;">self
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">num</span><span>(</span><span style="color:#bf616a;">dec</span><span>: Decimal) -&gt; </span><span style="color:#b48ead;">Self </span><span>{ </span><span style="color:#b48ead;">Self </span><span>{ num: dec } }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">str</span><span>(</span><span style="color:#bf616a;">str</span><span>: ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;) -&gt; </span><span style="color:#b48ead;">Self </span><span>{
+</span><span>        </span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#b48ead;">Self </span><span>{ </span><span style="color:#b48ead;">str</span><span>: ManuallyDrop::new(</span><span style="color:#b48ead;">str</span><span>) }.</span><span style="color:#96b5b4;">tag</span><span>(</span><span style="color:#d08770;">STR_MASK</span><span>) }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">formula</span><span>(</span><span style="color:#bf616a;">f</span><span>: Rc&lt;Aligned&gt;) -&gt; </span><span style="color:#b48ead;">Self </span><span>{
+</span><span>        </span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#b48ead;">Self </span><span>{ formula: ManuallyDrop::new(f) }.</span><span style="color:#96b5b4;">tag</span><span>(</span><span style="color:#d08770;">FORMULA_MASK</span><span>) }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>L'última cosa que es mostrarà en aquest article és com trobar-hi el valor real dins de les unions, i això es pot aconseguir verificant l'etiqueta:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">impl </span><span>CellValue {
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">get_value</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) -&gt; Option&lt;&amp;</span><span style="color:#b48ead;">mut</span><span> Value&gt; {
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">self</span><span>.</span><span style="color:#96b5b4;">downcast_iter</span><span>().</span><span style="color:#96b5b4;">is_none</span><span>() {
+</span><span>            Some(</span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#96b5b4;">transmute</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>.value) })
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{
+</span><span>            None
+</span><span>        }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">get_iter</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) -&gt; Option&lt;&amp;</span><span style="color:#b48ead;">mut</span><span> DynIter&gt; {
+</span><span>        </span><span style="color:#b48ead;">if unsafe </span><span>{ </span><span style="color:#bf616a;">self</span><span>.tag }.</span><span style="color:#96b5b4;">tag</span><span>() == </span><span style="color:#d08770;">ITER_MASK </span><span>{
+</span><span>            Some(</span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#96b5b4;">transmute</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>.iter) })
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{
+</span><span>            None
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">impl </span><span>Value {
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">get_num</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) -&gt; Option&lt;&amp;</span><span style="color:#b48ead;">mut</span><span> Decimal&gt; {
+</span><span>        </span><span style="color:#b48ead;">if unsafe </span><span>{ </span><span style="color:#bf616a;">self</span><span>.tag }.</span><span style="color:#96b5b4;">tag</span><span>() == </span><span style="color:#d08770;">NUM_MASK </span><span>{
+</span><span>            Some(</span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#96b5b4;">transmute</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span>*</span><span style="color:#bf616a;">self</span><span>) })
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{
+</span><span>            None
+</span><span>        }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// the rest are almost the same, so I leave as an
+</span><span>    </span><span style="color:#65737e;">// exercise to the reader creating a macro for them.
+</span><span>}
+</span></code></pre>
+<p>La implementació del codi de destrucció i la <em>macro</em> per automatitzar-hi els accessos es deixen com un exercici per al lector.</p>
+<h2 id="conclusio">Conclusió</h2>
+<p>Les unions són eines increïblement versàtils, i no pas un arcaisme de l'era perduda de Dennis Ritchie. Aquestes ens permeten modelar dades <em>a priori</em> tan simples com una enumeració, i a vegades cal emprar-les si escau el màxim de rendiment. Tanmateix, s'agrairia una ergonomia similar a les que es troben a les enumeracions, ja que si no cal definir-hi nombroses <em>macros</em>.</p>
+<hr />
+<p>[1]: Cal dir que Niko Matsakis ho va proposar al seu <a href="https://smallcultfollowing.com/babysteps/blog/2022/03/29/dyn-can-we-make-dyn-sized/">escrit sobre dyn*</a>.</p>
+
+
+<p class="tags-data">
+  
+</p>
+
+      </main>
+      <footer>
+          <!--
+	The MIT License (MIT)
+
+Copyright (c) 2023 Speyll Lyes
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<hr>
+<div id="footer-container">
+  
+  <div>
+    <p>Theme and color theme licensed under <a target="_blank" rel="noopener noreferrer" href="https://en.wikipedia.org/wiki/Licence_MIT">MIT</a>.<br>
+      Built with <a target="_blank" rel="noopener noreferrer" href="https://www.getzola.org">Zola</a> using <a target="_blank" rel="noopener noreferrer" href="https://github.com/Speyll/anemone">anemone</a> theme, <a target="_blank" rel="noopener noreferrer" href="https://speyll.github.io/suCSS/">suCSS</a> framework &amp; <a target="_blank" rel="noopener noreferrer" href="https://github.com/Speyll/veqev">veqev</a>.<br>
+    </p>
+
+  </div>
+  
+  <div>
+    <a class="no-style" target="_blank" rel="noopener noreferrer" href="https://alonely0.github.io/rss.xml" title="Subscribe via RSS for updates."><svg class="icons"><use href="https://alonely0.github.io/icons.svg#rss"></use></svg></a>
+  </div>
+  <script type="module" src="https://alonely0.oxitraffic.com/count.js"></script>
+  
+</div>
+
+
+      </footer>
+</body>
+</html>
