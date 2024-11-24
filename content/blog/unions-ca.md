@@ -31,7 +31,7 @@ Cal mencionar que tots els valors ocupen només 64 bits (de manera equivalent a 
 
 ## La delegació d'enumeració
 
-Aquesta solució és la més idiomàtica al llenguatge Rust, i generalment ofereix un rendiment molt superior, ja que no defineix cap abstracció. Es pot exemplificar amb les següents dades i implementacions:
+Aquesta solució és la més idiomàtica al llenguatge Rust, i generalment ofereix un rendiment molt superior, ja que no hi defineix cap abstracció. Es pot exemplificar amb les següents dades i implementacions:
 ```rust
 enum Valor {
     Nombre(f64),
