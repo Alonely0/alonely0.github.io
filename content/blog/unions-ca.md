@@ -27,7 +27,7 @@ struct Matriu(Box<dyn Iterator<Item = ValorDinàmic>);
 // implementació omesa
 ```
 
-Cal mencionar que com tots els valors ocupen només 64 bits (essent equivalents a un punter) si es redueixen els `Caràcters` a un `ThinVec<u8>`, no escauen pas abstraccions per emmagatzemar-les. Per tant, es pot concloure que aquest mètode és ineficient i impedeix optimitzacions significatives.
+Cal mencionar que com tots els valors ocupen només 64 bits (essent equivalents a un punter) si es redueixen els `Caràcters` a un `ThinVec<u8>`, no escauen pas abstraccions per emmagatzemar-los. Per tant, es pot concloure que aquest mètode és ineficient i impedeix optimitzacions significatives.
 
 ## La delegació d'enumeració
 
