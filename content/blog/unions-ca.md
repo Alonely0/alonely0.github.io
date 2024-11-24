@@ -63,11 +63,11 @@ A continuació, es mostra la representació en memòria:
 Tanmateix, s'ha d'esmentar que per motius de precisió, els nombres emprats al programa final no seran de 64 bits, sinó de 128, i per tant l'enumeració s'haurà d'allargar 64 bits, incomplint l'objectiu de mantenir-la en 128:
 
 ```txt
-[ 64 bits                 | 64 bits                 | 64 bits                  ]
-|_________________________|_________________________|__________________________|
- Etiqueta                   Meitat d'un nombre, o     L'altra meitat d'un nombre
-                            qualsevol altre           o res en els altres casos.
-                            element sencer.
+[ 64 bits ... | 64 bits               | 64 bits         ... ]
+|_________..._|_______________________|_________________..._|
+ Etiqueta       Meitat d'un nombre, o   L'altra meitat d'un
+                qualsevol altre         nombre, o res en
+                element sencer.         els altres casos.
 ```
 
 ## Implementació amb unions i punters etiquetats
