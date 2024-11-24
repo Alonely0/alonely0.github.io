@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+    <channel>
+      <title></title>
+      <link>https://alonely0.github.io</link>
+      <description></description>
+      <generator>Zola</generator>
+      <language>en</language>
+      <atom:link href="https://alonely0.github.io/rss.xml" rel="self" type="application/rss+xml"/>
+      <lastBuildDate>Mon, 21 Oct 2024 00:00:00 +0000</lastBuildDate>
+      <item>
+          <title>Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul</title>
+          <pubDate>Mon, 21 Oct 2024 00:00:00 +0000</pubDate>
+          <author>alonely0</author>
+          <link>https://alonely0.github.io/blog/unions-ca/</link>
+          <guid>https://alonely0.github.io/blog/unions-ca/</guid>
+          <description xml:base="https://alonely0.github.io/blog/unions-ca/">&lt;h2 id=&quot;introduccio&quot;&gt;Introducció&lt;&#x2F;h2&gt;
+&lt;p&gt;Primer de tot, aquest article s&#x27;adreça a un públic ja familiaritzat amb el llenguatge de programació &lt;em&gt;Rust&lt;&#x2F;em&gt;. A més, és recomanable tenir coneixements previs de com les dades es troben a la memòria de l&#x27;ordinador és certament recomanable, tot i que molts detalls s&#x27;explicaran sempre que calgui.&lt;&#x2F;p&gt;
+&lt;p&gt;Aquest és el primer article d&#x27;una nova sèrie on es detallarà com crear un programa de fulls de càlculs, sent la motivació de l&#x27;autor les deficiències de tots els que ha fet servir. Concretament, es començarà a escriure aquest nou programa dissenyant la distribució en memòria dels valors que trobem a cada cel·la, i per tant cal enumerar els valors possibles: nombres, caràcters, matrius i fórmules.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;un-primer-intent-la-delegacio-dinamica&quot;&gt;Un primer intent: la delegació dinàmica&lt;&#x2F;h2&gt;
+&lt;p&gt;Malgrat que la manera més idiomàtica de representar aquestes dades són les enumeracions, es començarà utilitzant aquest altre mètode a causa de la seva eficiència (128 bits constants; un punter per les dades i altre per les implementacions). Aquesta tècnica requereix definir els trets comuns de totes les dades a una &lt;em&gt;trait&lt;&#x2F;em&gt;, i permetrà tractar-les totes com una mateixa; a continuació, es defineix una que requereix la implementació de &lt;code&gt;Display&lt;&#x2F;code&gt;, per poder representar les dades gràficament:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;trait &lt;&#x2F;span&gt;&lt;span&gt;Valor: Display {}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;D&#x27;aquesta manera, es pot definir cada dada concreta i fer-les implementar-la:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;type &lt;&#x2F;span&gt;&lt;span&gt;ValorDinàmic = Box&amp;lt;dyn Valor&amp;gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Nombre(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;f64&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Caràcters(String);
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Fòrmula(Rc&amp;lt;Fòrmula&amp;gt;);
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Matriu(Box&amp;lt;dyn Iterator&amp;lt;Item = ValorDinàmic&amp;gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;&#x2F;&#x2F; implementació omesa
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Cal mencionar que com tots els valors ocupen només 64 bits (essent equivalents a un punter) si es redueixen els &lt;code&gt;Caràcters&lt;&#x2F;code&gt; a un &lt;code&gt;ThinVec&amp;lt;u8&amp;gt;&lt;&#x2F;code&gt;, no escauen pas abstraccions per emmagatzemar-los. Per tant, es pot concloure que aquest mètode és ineficient i impedeix optimitzacions significatives.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;la-delegacio-d-enumeracio&quot;&gt;La delegació d&#x27;enumeració&lt;&#x2F;h2&gt;
+&lt;p&gt;Aquesta solució és la més idiomàtica al llenguatge Rust, i generalment ofereix un rendiment molt superior, ja que no hi defineix cap abstracció. Es pot exemplificar amb les següents dades i implementacions:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;enum &lt;&#x2F;span&gt;&lt;span&gt;Valor {
+&lt;&#x2F;span&gt;&lt;span&gt;    Nombre(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;f64&lt;&#x2F;span&gt;&lt;span&gt;),
+&lt;&#x2F;span&gt;&lt;span&gt;    Caràcters(ThinVec&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;),
+&lt;&#x2F;span&gt;&lt;span&gt;    Fòrmula(Rc&amp;lt;Formula&amp;gt;),
+&lt;&#x2F;span&gt;&lt;span&gt;    Matriu(Box&amp;lt;dyn Iterator&amp;lt;Item = CellValue&amp;gt;&amp;gt;),
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;impl &lt;&#x2F;span&gt;&lt;span&gt;Display &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;for &lt;&#x2F;span&gt;&lt;span&gt;CellValue {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;f&lt;&#x2F;span&gt;&lt;span&gt;: ...) -&amp;gt; ... {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;match &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::Nombre(x) =&amp;gt; x.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(f),
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::Caràcters(x) =&amp;gt; x.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(f),
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::Fòrmula(x) =&amp;gt; x.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(f),
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::Matriu(x) =&amp;gt; x.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(f),
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;A continuació, es mostra la representació en memòria:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;&lt;span&gt;[ 64 bits                | 64 bits               ]
+&lt;&#x2F;span&gt;&lt;span&gt;|________________________|_______________________|
+&lt;&#x2F;span&gt;&lt;span&gt; Etiqueta; indica          Element en qüestió.
+&lt;&#x2F;span&gt;&lt;span&gt; l&amp;#39;element representat.    
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Tanmateix, s&#x27;ha d&#x27;esmentar que per motius de precisió, els nombres emprats al programa final no seran de 64 bits, sinó de 128, i per tant l&#x27;enumeració s&#x27;haurà d&#x27;allargar 64 bits, incomplint l&#x27;objectiu de mantenir-la en 128:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;&lt;span&gt;[ 64 bits ... | 64 bits               | 64 bits         ... ]
+&lt;&#x2F;span&gt;&lt;span&gt;|_________..._|_______________________|_________________..._|
+&lt;&#x2F;span&gt;&lt;span&gt; Etiqueta       Meitat d&amp;#39;un nombre, o   L&amp;#39;altra meitat d&amp;#39;un
+&lt;&#x2F;span&gt;&lt;span&gt;                qualsevol altre         nombre, o res en
+&lt;&#x2F;span&gt;&lt;span&gt;                element sencer.         els altres casos.
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;implementacio-amb-unions-i-punters-etiquetats&quot;&gt;Implementació amb unions i punters etiquetats&lt;&#x2F;h2&gt;
+&lt;p&gt;Atès al fet que els 15 bits menys significants del nombre en qüestió sempre són zero, i els punters a les dades tenen una alineació major de dos, es pot fer servir el mètode de punters etiquetats per desar l&#x27;etiquetes de dos bits a les dades dins d&#x27;aquest espai buit. Per aconseguir-ho escaurà definir les dades a una arcaica unió, pel fet que s&#x27;explicarà tot seguit:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span&gt;union Valor {
+&lt;&#x2F;span&gt;&lt;span&gt;    nombre: Decimal,
+&lt;&#x2F;span&gt;&lt;span&gt;    caràcters: ThinVec&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    fòrmula: Rc&amp;lt;Fòrmula&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    matriu: Box&amp;lt;dyn Iterator&amp;lt;Item = CellValue&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    etiqueta: TaggedPtr&amp;lt;2, ()&amp;gt;
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Com les unions defineixen un espai de memòria que pot estar ocupat per múltiples elements lliurement, també permeten reinterpretar dades, ja que es pot interpretar la dada emmagatzemada &lt;em&gt;A&lt;&#x2F;em&gt; com a una dada possible &lt;em&gt;B&lt;&#x2F;em&gt; a la unió &lt;em&gt;A∪B&lt;&#x2F;em&gt;. Per tant, es pot obtenir l&#x27;etiqueta de les dades llegint-la per a després seleccionar la dada correcta, i per acabar només s&#x27;ha de definir el valor concret de l&#x27;etiqueta a cada cas i tornar a implementar la funcionalitat desitjada:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ETIQUETA_NOMBRE&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8 &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0b00&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ETIQUETA_CARÀCTERS&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8 &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0b10&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ETIQUETA_FÒRMULA&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8 &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0b11&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ETIQUETA_MATRIU&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8 &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0b01&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;impl &lt;&#x2F;span&gt;&lt;span&gt;Display &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;for &lt;&#x2F;span&gt;&lt;span&gt;Valor {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;f&lt;&#x2F;span&gt;&lt;span&gt;: ...) -&amp;gt; ... {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;unsafe &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; etiqueta = &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.etiqueta.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;get_tag&lt;&#x2F;span&gt;&lt;span&gt;();
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.etiqueta.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;set_tag&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span&gt; fmt = &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;match&lt;&#x2F;span&gt;&lt;span&gt; etiqueta {
+&lt;&#x2F;span&gt;&lt;span&gt;                &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ETIQUETA_NOMBRE &lt;&#x2F;span&gt;&lt;span&gt;=&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.nombre.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;()
+&lt;&#x2F;span&gt;&lt;span&gt;                &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ETIQUETA_CARÀCTERS &lt;&#x2F;span&gt;&lt;span&gt;=&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.caràcters.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;()
+&lt;&#x2F;span&gt;&lt;span&gt;                &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ETIQUETA_FÒRMULA &lt;&#x2F;span&gt;&lt;span&gt;=&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.fòrmula.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;()
+&lt;&#x2F;span&gt;&lt;span&gt;                &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ETIQUETA_MATRIU &lt;&#x2F;span&gt;&lt;span&gt;=&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.matriu.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;()
+&lt;&#x2F;span&gt;&lt;span&gt;            }
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.etiqueta.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;set_tag&lt;&#x2F;span&gt;&lt;span&gt;(etiqueta);
+&lt;&#x2F;span&gt;&lt;span&gt;            fmt
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;D&#x27;aquesta manera, s&#x27;aconsegueix el màxim rendiment i es preserva l&#x27;estructura següent:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;&lt;span&gt;[ 2 bits |       126 bits    ...   ] 
+&lt;&#x2F;span&gt;&lt;span&gt;|________|___________________...___|
+&lt;&#x2F;span&gt;&lt;span&gt; Etiqueta  Dades emmagatzemades
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;conclusio&quot;&gt;Conclusió&lt;&#x2F;h2&gt;
+&lt;p&gt;Les unions són eines increïblement versàtils, i no pas un arcaisme de l&#x27;era de Dennis Ritchie. Aquestes ens permeten modelar dades &lt;em&gt;a priori&lt;&#x2F;em&gt; tan simples com una enumeració, i a vegades cal emprar-les si escau el màxim de rendiment, especialment quan s&#x27;ha d&#x27;interactuar manualment amb els bits de les dades. Tot i això, com s&#x27;ha vist a la seva implementació, aquestes contenen riscos a la seguretat de la memòria i s&#x27;han d&#x27;utilitzar amb cura.&lt;&#x2F;p&gt;
+</description>
+      </item>
+      <item>
+          <title>Designing an efficient memory layout in Rust with unsafe &amp; unions, or, an overlong guide in avoiding dynamic dispatch</title>
+          <pubDate>Sun, 28 Apr 2024 00:00:00 +0000</pubDate>
+          <author>alonely0</author>
+          <link>https://alonely0.github.io/blog/unions/</link>
+          <guid>https://alonely0.github.io/blog/unions/</guid>
+          <description xml:base="https://alonely0.github.io/blog/unions/">&lt;h2 id=&quot;introduction&quot;&gt;Introduction&lt;&#x2F;h2&gt;
+&lt;p&gt;First and foremost, this post is addressed to people already familiar with the Rust language, and knowledge of how typical Rust data structures are laid out in memory is certainly advised (though, everything is explained in detail just in case). However, I will not be assuming knowledge of how things work under-the-hood, and I will try my best to explain everything.&lt;&#x2F;p&gt;
+&lt;p&gt;This is the first blog post in a series of how to build a CLI spreadsheet program, mostly because I&#x27;m too tired of all other spreadsheets&#x27; deficiencies. In this blog post, I will be designing the memory layout of each of the values in the spreadsheet&#x27;s cells, so we should start with the question: What does a spreadsheet cell contain?&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;A number? Perhaps!&lt;&#x2F;li&gt;
+&lt;li&gt;A string of characters? Perhaps!&lt;&#x2F;li&gt;
+&lt;li&gt;A formula, which is itself a domain-specific-language? Perhaps!&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;However, that is not just it. I am not aware if that is the case in Excel, but in Google Docs, a cell can get its value overridden by a matrix displayed on another cell that covers it. Matrices and iterators will be the core design of this spreadsheet engine, but that is for another blog post. However, that means that a value is either one of the listed before, or an iterator that yields these values.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;a-first-attempt-dynamic-dispatch&quot;&gt;A first attempt: dynamic dispatch&lt;&#x2F;h2&gt;
+&lt;p&gt;The naive approach, which is the one I&#x27;d recommend myself, would be to use &lt;code&gt;enum&lt;&#x2F;code&gt;s. However, for educational purposes, we will start modeling this with dynamic dispatch; because as we will see in just a moment, its memory layout is very efficient (always two words&#x2F;&lt;code&gt;usize&lt;&#x2F;code&gt;s). For starters, let&#x27;s define a trait that models the behavior for any cell value:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;trait &lt;&#x2F;span&gt;&lt;span&gt;CellValue: Display + Any {}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;I have decided not to include any methods, and instead require that a) it implements &lt;code&gt;Display&lt;&#x2F;code&gt; for printing on the screen, and b) It implements &lt;code&gt;Any&lt;&#x2F;code&gt; so that we can &amp;quot;downcast&amp;quot; the value out of dynamic dispatch if necessary. Downcasting is a practice in which you can save an &amp;quot;ID&amp;quot; of a type inside its dynamic function table (what the keyword &lt;em&gt;dyn&lt;&#x2F;em&gt; generates); and if you statically assert that its ID is of a known type, it is safe to convert it back to its non-dynamic type.&lt;&#x2F;p&gt;
+&lt;p&gt;Thus, we can now define each individual type:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;type &lt;&#x2F;span&gt;&lt;span&gt;DynCellValue = Box&amp;lt;dyn CellValue&amp;gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Num(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;f64&lt;&#x2F;span&gt;&lt;span&gt;);
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Str(String);
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Formula; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;&#x2F;&#x2F; To-do
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;Iter(Box&amp;lt;dyn Iterator&amp;lt;Item = DynCellValue&amp;gt;);
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;&#x2F;&#x2F; Display &amp;amp; CellValue impls left as an exercise for the reader.
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;The most important conclusion we can draw is that &lt;code&gt;Iter&lt;&#x2F;code&gt; has two dynamic dispatch indirections, for itself (since we want to allow arbitrary matrices), and for its values, as they themselves could be anything. Before discussing why this is a bad approach, let&#x27;s take a look at &lt;code&gt;DynCellValue&lt;&#x2F;code&gt;&#x27;s layout:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;&lt;span&gt;[ 64bits               | 64bits                ]
+&lt;&#x2F;span&gt;&lt;span&gt;|______________________|_______________________|
+&lt;&#x2F;span&gt;&lt;span&gt; Pointer to the heap,   Pointer to a VTable,
+&lt;&#x2F;span&gt;&lt;span&gt; where the data lives.  where we can find the
+&lt;&#x2F;span&gt;&lt;span&gt;                        pointers to the
+&lt;&#x2F;span&gt;&lt;span&gt;                        functions it implements.
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;However, the &lt;code&gt;Num&lt;&#x2F;code&gt; case is as big as a pointer, so perhaps we could include it inline, instead of allocating it! If only we had a way of distinguishing between those two cases^[1]... Not only that, but maybe we could use a &lt;code&gt;ThinVec&lt;&#x2F;code&gt; to store the &lt;code&gt;String&lt;&#x2F;code&gt;&#x27; contents, which would also store its length and capacity inside its allocation (surprise! a &lt;code&gt;String&lt;&#x2F;code&gt; is just a &lt;code&gt;Vec&amp;lt;u8&amp;gt;&lt;&#x2F;code&gt;). That would only leave the &lt;code&gt;Formula&lt;&#x2F;code&gt; as a variant possibly bigger than a word, but I plan on it being inside a reference-counted allocation anyway (an &lt;code&gt;Rc&lt;&#x2F;code&gt; container), so in the future, it&#x27;ll be just a pointer. That means that all allocations of &lt;code&gt;Box&amp;lt;dyn CellValue&amp;gt;&lt;&#x2F;code&gt; would just be... slow and needless indirections. There is a point why I started the article with &lt;code&gt;dyn&lt;&#x2F;code&gt;, even though it&#x27;s the slowest and least idiomatic: it will always be two words, regardless of what we throw at it. From now on, our objective is to keep that while removing all of &lt;code&gt;Box&amp;lt;dyn ...&amp;gt;&lt;&#x2F;code&gt;&#x27;s unneecessary indirections.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;enum-dispatch&quot;&gt;Enum dispatch&lt;&#x2F;h2&gt;
+&lt;p&gt;This is what you should always try before resorting to dynamic dispatch. &lt;code&gt;enum_dispatch&lt;&#x2F;code&gt; is a useful crate in situations where you know all the types of a &lt;code&gt;dyn Trait&lt;&#x2F;code&gt;, as it automagically does the following:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;enum &lt;&#x2F;span&gt;&lt;span&gt;CellValue {
+&lt;&#x2F;span&gt;&lt;span&gt;    Num(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;f64&lt;&#x2F;span&gt;&lt;span&gt;),
+&lt;&#x2F;span&gt;&lt;span&gt;    Str(ThinVec&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;),
+&lt;&#x2F;span&gt;&lt;span&gt;    Formula(Rc&amp;lt;Formula&amp;gt;),
+&lt;&#x2F;span&gt;&lt;span&gt;    Iter(Box&amp;lt;dyn Iterator&amp;lt;Item = CellValue&amp;gt;&amp;gt;),
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;impl &lt;&#x2F;span&gt;&lt;span&gt;Display &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;for &lt;&#x2F;span&gt;&lt;span&gt;CellValue {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;f&lt;&#x2F;span&gt;&lt;span&gt;: ...) -&amp;gt; ... {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;match &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::Num(x) =&amp;gt; x.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(f),
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::Str(s) =&amp;gt; s.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(f),
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::Formula(o) =&amp;gt; o.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;fmt&lt;&#x2F;span&gt;&lt;span&gt;(f),
+&lt;&#x2F;span&gt;&lt;span&gt;            &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self&lt;&#x2F;span&gt;&lt;span&gt;::Iter(i) =&amp;gt; todo!(),
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;The &lt;code&gt;todo!()&lt;&#x2F;code&gt; there is beacuse &lt;code&gt;Iter&lt;&#x2F;code&gt; has spooky action at a distance (meaning, it affects more cells than itself); so in the future, we&#x27;ll engineer a way to allow it to do its thing, but, right now, that is not a priority. Layout:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;&lt;span&gt;[ 64bits               | 64bits                ]
+&lt;&#x2F;span&gt;&lt;span&gt;|______________________|_______________________|
+&lt;&#x2F;span&gt;&lt;span&gt; Tag                    An f64, a ThinVec&amp;lt;u8&amp;gt;
+&lt;&#x2F;span&gt;&lt;span&gt;                        or an Rc&amp;lt;Formula&amp;gt;.
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;As you can see, we managed to keep the enum at two words (one for the value, one for the tag that tells which variant is inside), and by removing the heap allocations &amp;amp; pointers and the opaque function calls, it now is orders of magnitude faster. All the &lt;code&gt;Display::fmt()&lt;&#x2F;code&gt; functions are now static, and in the &lt;code&gt;enum&lt;&#x2F;code&gt;&#x27;s, we dispatch it to the implementation of the inner values using the tag (what &lt;code&gt;match&lt;&#x2F;code&gt; is doing). However, I lied before, our number is not a single word, it&#x27;s going to be two (just like an u128), and for now we will call it &lt;code&gt;Long&lt;&#x2F;code&gt; to annoy C programmers (joke, IYKYK). That breaks our previous goal of keeping it at two words, since enums are as big as their bigger variant plus the tag, so it&#x27;d be three words:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;&lt;span&gt;[ 64bits              | 64bits                | 64bits                ]
+&lt;&#x2F;span&gt;&lt;span&gt;|_____________________|_______________________|_______________________|
+&lt;&#x2F;span&gt;&lt;span&gt;Tag                     Half a Long, or a full  The other half of a                                    
+&lt;&#x2F;span&gt;&lt;span&gt;                        ThinVec&amp;lt;u8&amp;gt; or          `Long`, or nothing
+&lt;&#x2F;span&gt;&lt;span&gt;                        Rc&amp;lt;Formula&amp;gt;.            otherwise.
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;That is a whole wasted word when the value is not a &lt;code&gt;Long&lt;&#x2F;code&gt;, we can do better than that! However, we will have to rely on a giant hack: our &lt;code&gt;Long&lt;&#x2F;code&gt; does not use its entire bit pattern. Otherwise, if it being just two words long was really necessary, or there was a very big variant in contrast to very small ones, the best approach would be to box said variant, which is still way more performant than &lt;code&gt;Box&amp;lt;dyn ...&amp;gt;&lt;&#x2F;code&gt; (so, as you can see, avoid it if you can).&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;the-decimal-number-type-ft-tagged-pointers&quot;&gt;The decimal number type, ft tagged pointers.&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;Disclaimer: from now on, the code might only work on 64-bits little-endian architectures (basically all the widely used ones).&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;That is the correct name for our &lt;code&gt;Long&lt;&#x2F;code&gt;, &lt;code&gt;Decimal&lt;&#x2F;code&gt;. It is a number like a floating-point one, but much more precise and suitable for financial computations. Its layout is as follows:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;&lt;span&gt;[ 15bits | 113 bits                                             ]
+&lt;&#x2F;span&gt;&lt;span&gt;|________|______________________________________________________|
+&lt;&#x2F;span&gt;&lt;span&gt; Unused.   The actual decimal number, irrelevant.
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Although these first bits are unused, they&#x27;re always zero, and the moment they&#x27;re not, we may hit UB in the internal implementations of the number.&lt;&#x2F;p&gt;
+&lt;p&gt;If you&#x27;ve ever played with tagged pointers, perhaps you already know what we&#x27;re getting into here. For any pointer, if the pointee has an alignment bigger than one, we can store as much data in the lower part of the pointer as its alignment. That is because in Rust, all safe reads are aligned, so we can assume that our values are aligned. Note that this data stored in the pointer must be removed before the pointee is read (for obvious reasons). From now on, all our cell values will be of alignment of two, so:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;&lt;span&gt;[ 2bits | 62 bits              ... ]
+&lt;&#x2F;span&gt;&lt;span&gt;|_______|__________________________|
+&lt;&#x2F;span&gt;&lt;span&gt; Always   The rest of the pointer.
+&lt;&#x2F;span&gt;&lt;span&gt; zeroed.
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Thus, we can exploit these common unused bits to store the &lt;code&gt;enum&lt;&#x2F;code&gt;&#x27;s tag, and this is what the &lt;code&gt;tagged_pointer&lt;&#x2F;code&gt; crate will do for us. Explaining tagged pointers beyond the conceptual points is out of scope for this post, so I recommend you read &lt;code&gt;tagged_pointer&lt;&#x2F;code&gt;&#x27;s documentation and source if you&#x27;re interested.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;now-with-unions-also-known-as-c-s-untagged-enums-or-friedrich-transmute&quot;&gt;Now with unions, also known as C&#x27;s untagged enums or Friedrich Transmute.&lt;&#x2F;h2&gt;
+&lt;p&gt;Unions are the backing data for enums, these allow you to define a space of data which may be used by a set of types; but only one at a time, and without taking note of which one it is. The Friederich Transmute pun comes from the fact that these effectively allow you to do the same as &lt;code&gt;std::mem::transmute&lt;&#x2F;code&gt;, since by accessing using a different type than what was written, you&#x27;re reinterpreting the bytes of a type as a different one.&lt;&#x2F;p&gt;
+&lt;p&gt;For starters, let&#x27;s copy our previous &lt;code&gt;enum&lt;&#x2F;code&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span&gt;union CellValue {
+&lt;&#x2F;span&gt;&lt;span&gt;    num: Decimal,
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;str&lt;&#x2F;span&gt;&lt;span&gt;: ThinVec&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    formula: Rc&amp;lt;Formula&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    iter: Box&amp;lt;dyn Iterator&amp;lt;Item = CellValue&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;The first thing we&#x27;ll get is a screaming message from rustc telling us to wrap everything that&#x27;s not &lt;code&gt;Copy&lt;&#x2F;code&gt; in a &lt;code&gt;ManuallyDrop&amp;lt;T&amp;gt;&lt;&#x2F;code&gt;. As it turns out, unions are one of the many reasons why destructors are just a suggestion in Rust, and that is what &lt;code&gt;ManuallyDrop&amp;lt;T&amp;gt;&lt;&#x2F;code&gt; does, remove the drop implementation from its inner. This is needed because there is no info for the compiler to codegen the drop of the union since it can&#x27;t possibly know what&#x27;s inside, so it nicely asks us not to ask it to do so. The next thing we&#x27;ll do is add a field with a &lt;code&gt;TaggedPtr&amp;lt;Aligned, 2&amp;gt;&lt;&#x2F;code&gt; where &lt;code&gt;Aligned&lt;&#x2F;code&gt;&#x27;s alignment is two; so that we can use what&#x27;s inside the union as a tagged pointer to get, set, and remove the tag. As it stands, we get the following:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span&gt;union CellValue {
+&lt;&#x2F;span&gt;&lt;span&gt;    tag: TaggedPtr&amp;lt;Aligned, 2&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    num: Decimal,
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;str&lt;&#x2F;span&gt;&lt;span&gt;: ManuallyDrop&amp;lt;ThinVec&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    formula: ManuallyDrop&amp;lt;Rc&amp;lt;Formula&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    iter: ManuallyDrop&amp;lt;Box&amp;lt;dyn Iterator&amp;lt;Item = CellValue&amp;gt;&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;manually-implementing-iter-s-dyn&quot;&gt;Manually implementing iter&#x27;s &lt;code&gt;dyn&lt;&#x2F;code&gt;.&lt;&#x2F;h3&gt;
+&lt;p&gt;Before continuing, there&#x27;s something we should do, desugar &lt;code&gt;Box&amp;lt;dyn ...&amp;gt;&lt;&#x2F;code&gt;. This allows us to remove a pointer of indirection: the whole vtable. It is true that &lt;code&gt;Iterator&lt;&#x2F;code&gt; has like eighty methods we will want to use, but these all have default implementations which we will not override, so we won&#x27;t need a pointer to a vtable of functions, only to one function (I bet you know where this is going). The only required function is &lt;code&gt;Iterator::next()&lt;&#x2F;code&gt;, so that is the only one we will keep as an opaque one, and we will statically generate the rest. First, let&#x27;s create a struct with the data:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;DynIter {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;data&lt;&#x2F;span&gt;&lt;span&gt;: TaggedPtr&amp;lt;Aligned, 2&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;next&lt;&#x2F;span&gt;&lt;span&gt;: NonNull&amp;lt;()&amp;gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;&#x2F;&#x2F; All function pointers are guaranteed not to be null
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Then let&#x27;s tell the compiler to codegen the rest of the iterator&#x27;s functions with our opaque &lt;code&gt;next()&lt;&#x2F;code&gt; for us:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;impl &lt;&#x2F;span&gt;&lt;span&gt;Iterator &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;for &lt;&#x2F;span&gt;&lt;span&gt;DynIter {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;type &lt;&#x2F;span&gt;&lt;span&gt;Item = CellValue;
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;next&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; Option&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self::&lt;&#x2F;span&gt;&lt;span&gt;Item&amp;gt; {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;type &lt;&#x2F;span&gt;&lt;span&gt;NextFn = &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;for&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;&amp;#39;a&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;&amp;#39;a mut&lt;&#x2F;span&gt;&lt;span&gt; Aligned) -&amp;gt; CellValue;
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;unsafe &lt;&#x2F;span&gt;&lt;span&gt;{ transmute::&amp;lt;_, NextFn&amp;gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.next)(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.data.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;ptr&lt;&#x2F;span&gt;&lt;span&gt;().&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;as_mut&lt;&#x2F;span&gt;&lt;span&gt;()) }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Taking advantage of this, I will be refactoring the unions so as to limit when a value is or is not allowed to be an iterator (this will make our life easier in the coming posts):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;MASK_BITS&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;usize &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;2&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;union Value {
+&lt;&#x2F;span&gt;&lt;span&gt;    tag: TaggedPtr&amp;lt;Aligned, MASK_BITS&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    num: Decimal,
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;str&lt;&#x2F;span&gt;&lt;span&gt;: ManuallyDrop&amp;lt;ThinVec&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    formula: ManuallyDrop&amp;lt;Rc&amp;lt;Formula&amp;gt;&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;struct &lt;&#x2F;span&gt;&lt;span&gt;DynIter {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;data&lt;&#x2F;span&gt;&lt;span&gt;: TaggedPtr&amp;lt;Aligned, MASK_BITS&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;next&lt;&#x2F;span&gt;&lt;span&gt;: NonNull&amp;lt;()&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;union CellValue {
+&lt;&#x2F;span&gt;&lt;span&gt;    tag: TaggedPtr&amp;lt;Aligned, MASK_BITS&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    value: ManuallyDrop&amp;lt;Value&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;    iter: ManuallyDrop&amp;lt;DynIter&amp;gt;,
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;messing-with-taggedptr&quot;&gt;Messing with TaggedPtr&lt;&#x2F;h3&gt;
+&lt;p&gt;Now we have to choose the bitmasks for the tags of each value. The &lt;code&gt;0b00&lt;&#x2F;code&gt; and &lt;code&gt;0b01&lt;&#x2F;code&gt; tags will be the fastest ones, so I will be giving them to &lt;code&gt;num&lt;&#x2F;code&gt; and &lt;code&gt;iter&lt;&#x2F;code&gt;, being the no-op one (&lt;code&gt;0b00&lt;&#x2F;code&gt;) for &lt;code&gt;num&lt;&#x2F;code&gt; because I&#x27;d rather not mess with it:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;NUM_MASK&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;usize &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0b00&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ITER_MASK&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;usize &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0b01&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;STR_MASK&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;usize &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0b10&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;const &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;FORMULA_MASK&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;usize &lt;&#x2F;span&gt;&lt;span&gt;= &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;0b11&lt;&#x2F;span&gt;&lt;span&gt;;
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Because &lt;code&gt;TaggedPtr::new(ptr, tag)&lt;&#x2F;code&gt; is the way you construct a new one, we will have to figure out a way to have the &lt;code&gt;ptr&lt;&#x2F;code&gt; it gets to be the same as the low bits of our CellValue. The easiest way out of here would just be to use arguably the most unsafe function in all Rust, the chaotic sibling of Friedrich Transmute: &lt;code&gt;std::mem::transmute_copy&lt;&#x2F;code&gt;. This allows us to copy the CellValue&#x27;s low 64 bits into &lt;code&gt;TaggedPtr::new()&lt;&#x2F;code&gt;&#x27;s first argument, which is likely to get optimized away after inlining:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;impl &lt;&#x2F;span&gt;&lt;span&gt;Value {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;unsafe fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;tag&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;, &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;tag&lt;&#x2F;span&gt;&lt;span&gt;: &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;usize&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.tag = TaggedPtr::new(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;transmute_copy&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;), tag);
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;num&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;dec&lt;&#x2F;span&gt;&lt;span&gt;: Decimal) -&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self &lt;&#x2F;span&gt;&lt;span&gt;{ num: dec } }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;str&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;str&lt;&#x2F;span&gt;&lt;span&gt;: ThinVec&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;u8&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt;) -&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;unsafe &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;str&lt;&#x2F;span&gt;&lt;span&gt;: ManuallyDrop::new(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;str&lt;&#x2F;span&gt;&lt;span&gt;) }.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;tag&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;STR_MASK&lt;&#x2F;span&gt;&lt;span&gt;) }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;formula&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;f&lt;&#x2F;span&gt;&lt;span&gt;: Rc&amp;lt;Aligned&amp;gt;) -&amp;gt; &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;unsafe &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;Self &lt;&#x2F;span&gt;&lt;span&gt;{ formula: ManuallyDrop::new(f) }.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;tag&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;FORMULA_MASK&lt;&#x2F;span&gt;&lt;span&gt;) }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;The last thing I will show on this blog post is how to get back a value from our union, which can be done by checking whether the tag matches the value you want back:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; style=&quot;background-color:#2b303b;color:#c0c5ce;&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;impl &lt;&#x2F;span&gt;&lt;span&gt;CellValue {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;pub fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;get_value&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; Option&amp;lt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; Value&amp;gt; {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;if &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;downcast_iter&lt;&#x2F;span&gt;&lt;span&gt;().&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;is_none&lt;&#x2F;span&gt;&lt;span&gt;() {
+&lt;&#x2F;span&gt;&lt;span&gt;            Some(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;unsafe &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;transmute&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.value) })
+&lt;&#x2F;span&gt;&lt;span&gt;        } &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;else &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            None
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;pub fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;get_iter&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; Option&amp;lt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; DynIter&amp;gt; {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;if unsafe &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.tag }.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;tag&lt;&#x2F;span&gt;&lt;span&gt;() == &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;ITER_MASK &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            Some(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;unsafe &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;transmute&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.iter) })
+&lt;&#x2F;span&gt;&lt;span&gt;        } &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;else &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            None
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;impl &lt;&#x2F;span&gt;&lt;span&gt;Value {
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;fn &lt;&#x2F;span&gt;&lt;span style=&quot;color:#8fa1b3;&quot;&gt;get_num&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;) -&amp;gt; Option&amp;lt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut&lt;&#x2F;span&gt;&lt;span&gt; Decimal&amp;gt; {
+&lt;&#x2F;span&gt;&lt;span&gt;        &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;if unsafe &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;.tag }.&lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;tag&lt;&#x2F;span&gt;&lt;span&gt;() == &lt;&#x2F;span&gt;&lt;span style=&quot;color:#d08770;&quot;&gt;NUM_MASK &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            Some(&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;unsafe &lt;&#x2F;span&gt;&lt;span&gt;{ &lt;&#x2F;span&gt;&lt;span style=&quot;color:#96b5b4;&quot;&gt;transmute&lt;&#x2F;span&gt;&lt;span&gt;(&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;mut &lt;&#x2F;span&gt;&lt;span&gt;*&lt;&#x2F;span&gt;&lt;span style=&quot;color:#bf616a;&quot;&gt;self&lt;&#x2F;span&gt;&lt;span&gt;) })
+&lt;&#x2F;span&gt;&lt;span&gt;        } &lt;&#x2F;span&gt;&lt;span style=&quot;color:#b48ead;&quot;&gt;else &lt;&#x2F;span&gt;&lt;span&gt;{
+&lt;&#x2F;span&gt;&lt;span&gt;            None
+&lt;&#x2F;span&gt;&lt;span&gt;        }
+&lt;&#x2F;span&gt;&lt;span&gt;    }
+&lt;&#x2F;span&gt;&lt;span&gt;
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;&#x2F;&#x2F; the rest are almost the same, so I leave as an
+&lt;&#x2F;span&gt;&lt;span&gt;    &lt;&#x2F;span&gt;&lt;span style=&quot;color:#65737e;&quot;&gt;&#x2F;&#x2F; exercise to the reader creating a macro for them.
+&lt;&#x2F;span&gt;&lt;span&gt;}
+&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;There&#x27;s only one little thing that we are forgetting, the drop code. Because I left as an exercise for you creating a macro for accessing each field, I will do the same with the drop code that uses it (this is long enough, I&#x27;m tired).&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;conclusion&quot;&gt;Conclusion&lt;&#x2F;h2&gt;
+&lt;p&gt;Unions are not just an archaic tool from the long forgotten era of Dennis Ritchie, they are still a very useful tool which can yield amazing results in the right han&lt;strong&gt;Segmentation fault (core dumped)&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;p&gt;[1]: Note that this is what Niko Matsakis proposed with its &lt;a href=&quot;https:&#x2F;&#x2F;smallcultfollowing.com&#x2F;babysteps&#x2F;blog&#x2F;2022&#x2F;03&#x2F;29&#x2F;dyn-can-we-make-dyn-sized&#x2F;&quot;&gt;dyn* blog post&lt;&#x2F;a&gt;, and we will be exploiting this later.&lt;&#x2F;p&gt;
+</description>
+      </item>
+    </channel>
+</rss>

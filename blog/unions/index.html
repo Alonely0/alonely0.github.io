@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+<meta content="IE=edge" http-equiv="X-UA-Compatible"/>
+<meta content="text/html; charset=UTF-8" http-equiv="content-type"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<meta name="robots" content="index, follow">
+
+
+
+
+
+
+
+
+
+
+
+
+<title>Designing an efficient memory layout in Rust with unsafe &amp; unions, or, an overlong guide in avoiding dynamic dispatch</title>
+
+
+
+<meta name="title" content="Designing an efficient memory layout in Rust with unsafe &amp; unions, or, an overlong guide in avoiding dynamic dispatch">
+
+
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alonely0.github.io/blog/unions/">
+
+<meta property="og:site_name" content="">
+
+
+<meta property="og:title" content="Designing an efficient memory layout in Rust with unsafe &amp; unions, or, an overlong guide in avoiding dynamic dispatch">
+
+
+
+<meta property="og:image" content="https:&#x2F;&#x2F;alonely0.github.io&#x2F;public&#x2F;favicon.ico">
+
+
+
+<link rel="canonical" href="https://alonely0.github.io/blog/unions/">
+
+<link rel="shortcut icon" type="image/x-icon" href="https://alonely0.github.io/public/favicon.ico">
+
+
+
+
+<link rel="alternate" type="application/atom+xml" title="RSS" href="https://alonely0.github.io/atom.xml"> 
+
+
+
+<link rel="stylesheet" type="text/css" href="https://speyll.github.io/suCSS/reset-min.css"/>
+<link rel="stylesheet" type="text/css" href="https://speyll.github.io/suCSS/suCSS-min.css"/>
+<link rel="stylesheet" type="text/css" href="https://alonely0.github.io/css/style.css"/>
+
+<script src="https://alonely0.github.io/js/script.js" defer></script>
+
+
+</head>
+<body>
+      <header>
+          
+
+  
+
+
+
+      </header>
+      <main>
+          
+<div><a href="..">..</a>/<span class="accent-data">unions</span></div>
+<time datetime="2024-04-28">Published on: <span class="accent-data">2024-04-28</span></time>
+
+<h1>Designing an efficient memory layout in Rust with unsafe &amp; unions, or, an overlong guide in avoiding dynamic dispatch</h1>
+
+
+
+<h2 id="introduction">Introduction</h2>
+<p>First and foremost, this post is addressed to people already familiar with the Rust language, and knowledge of how typical Rust data structures are laid out in memory is certainly advised (though, everything is explained in detail just in case). However, I will not be assuming knowledge of how things work under-the-hood, and I will try my best to explain everything.</p>
+<p>This is the first blog post in a series of how to build a CLI spreadsheet program, mostly because I'm too tired of all other spreadsheets' deficiencies. In this blog post, I will be designing the memory layout of each of the values in the spreadsheet's cells, so we should start with the question: What does a spreadsheet cell contain?</p>
+<ul>
+<li>A number? Perhaps!</li>
+<li>A string of characters? Perhaps!</li>
+<li>A formula, which is itself a domain-specific-language? Perhaps!</li>
+</ul>
+<p>However, that is not just it. I am not aware if that is the case in Excel, but in Google Docs, a cell can get its value overridden by a matrix displayed on another cell that covers it. Matrices and iterators will be the core design of this spreadsheet engine, but that is for another blog post. However, that means that a value is either one of the listed before, or an iterator that yields these values.</p>
+<h2 id="a-first-attempt-dynamic-dispatch">A first attempt: dynamic dispatch</h2>
+<p>The naive approach, which is the one I'd recommend myself, would be to use <code>enum</code>s. However, for educational purposes, we will start modeling this with dynamic dispatch; because as we will see in just a moment, its memory layout is very efficient (always two words/<code>usize</code>s). For starters, let's define a trait that models the behavior for any cell value:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">trait </span><span>CellValue: Display + Any {}
+</span></code></pre>
+<p>I have decided not to include any methods, and instead require that a) it implements <code>Display</code> for printing on the screen, and b) It implements <code>Any</code> so that we can &quot;downcast&quot; the value out of dynamic dispatch if necessary. Downcasting is a practice in which you can save an &quot;ID&quot; of a type inside its dynamic function table (what the keyword <em>dyn</em> generates); and if you statically assert that its ID is of a known type, it is safe to convert it back to its non-dynamic type.</p>
+<p>Thus, we can now define each individual type:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">type </span><span>DynCellValue = Box&lt;dyn CellValue&gt;;
+</span><span style="color:#b48ead;">struct </span><span>Num(</span><span style="color:#b48ead;">f64</span><span>);
+</span><span style="color:#b48ead;">struct </span><span>Str(String);
+</span><span style="color:#b48ead;">struct </span><span>Formula; </span><span style="color:#65737e;">// To-do
+</span><span style="color:#b48ead;">struct </span><span>Iter(Box&lt;dyn Iterator&lt;Item = DynCellValue&gt;);
+</span><span>
+</span><span style="color:#65737e;">// Display &amp; CellValue impls left as an exercise for the reader.
+</span></code></pre>
+<p>The most important conclusion we can draw is that <code>Iter</code> has two dynamic dispatch indirections, for itself (since we want to allow arbitrary matrices), and for its values, as they themselves could be anything. Before discussing why this is a bad approach, let's take a look at <code>DynCellValue</code>'s layout:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 64bits               | 64bits                ]
+</span><span>|______________________|_______________________|
+</span><span> Pointer to the heap,   Pointer to a VTable,
+</span><span> where the data lives.  where we can find the
+</span><span>                        pointers to the
+</span><span>                        functions it implements.
+</span></code></pre>
+<p>However, the <code>Num</code> case is as big as a pointer, so perhaps we could include it inline, instead of allocating it! If only we had a way of distinguishing between those two cases^[1]... Not only that, but maybe we could use a <code>ThinVec</code> to store the <code>String</code>' contents, which would also store its length and capacity inside its allocation (surprise! a <code>String</code> is just a <code>Vec&lt;u8&gt;</code>). That would only leave the <code>Formula</code> as a variant possibly bigger than a word, but I plan on it being inside a reference-counted allocation anyway (an <code>Rc</code> container), so in the future, it'll be just a pointer. That means that all allocations of <code>Box&lt;dyn CellValue&gt;</code> would just be... slow and needless indirections. There is a point why I started the article with <code>dyn</code>, even though it's the slowest and least idiomatic: it will always be two words, regardless of what we throw at it. From now on, our objective is to keep that while removing all of <code>Box&lt;dyn ...&gt;</code>'s unneecessary indirections.</p>
+<h2 id="enum-dispatch">Enum dispatch</h2>
+<p>This is what you should always try before resorting to dynamic dispatch. <code>enum_dispatch</code> is a useful crate in situations where you know all the types of a <code>dyn Trait</code>, as it automagically does the following:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">enum </span><span>CellValue {
+</span><span>    Num(</span><span style="color:#b48ead;">f64</span><span>),
+</span><span>    Str(ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;),
+</span><span>    Formula(Rc&lt;Formula&gt;),
+</span><span>    Iter(Box&lt;dyn Iterator&lt;Item = CellValue&gt;&gt;),
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">impl </span><span>Display </span><span style="color:#b48ead;">for </span><span>CellValue {
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">fmt</span><span>(&amp;</span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">f</span><span>: ...) -&gt; ... {
+</span><span>        </span><span style="color:#b48ead;">match </span><span style="color:#bf616a;">self </span><span>{
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Num(x) =&gt; x.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Str(s) =&gt; s.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Formula(o) =&gt; o.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Iter(i) =&gt; todo!(),
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>The <code>todo!()</code> there is beacuse <code>Iter</code> has spooky action at a distance (meaning, it affects more cells than itself); so in the future, we'll engineer a way to allow it to do its thing, but, right now, that is not a priority. Layout:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 64bits               | 64bits                ]
+</span><span>|______________________|_______________________|
+</span><span> Tag                    An f64, a ThinVec&lt;u8&gt;
+</span><span>                        or an Rc&lt;Formula&gt;.
+</span></code></pre>
+<p>As you can see, we managed to keep the enum at two words (one for the value, one for the tag that tells which variant is inside), and by removing the heap allocations &amp; pointers and the opaque function calls, it now is orders of magnitude faster. All the <code>Display::fmt()</code> functions are now static, and in the <code>enum</code>'s, we dispatch it to the implementation of the inner values using the tag (what <code>match</code> is doing). However, I lied before, our number is not a single word, it's going to be two (just like an u128), and for now we will call it <code>Long</code> to annoy C programmers (joke, IYKYK). That breaks our previous goal of keeping it at two words, since enums are as big as their bigger variant plus the tag, so it'd be three words:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 64bits              | 64bits                | 64bits                ]
+</span><span>|_____________________|_______________________|_______________________|
+</span><span>Tag                     Half a Long, or a full  The other half of a                                    
+</span><span>                        ThinVec&lt;u8&gt; or          `Long`, or nothing
+</span><span>                        Rc&lt;Formula&gt;.            otherwise.
+</span></code></pre>
+<p>That is a whole wasted word when the value is not a <code>Long</code>, we can do better than that! However, we will have to rely on a giant hack: our <code>Long</code> does not use its entire bit pattern. Otherwise, if it being just two words long was really necessary, or there was a very big variant in contrast to very small ones, the best approach would be to box said variant, which is still way more performant than <code>Box&lt;dyn ...&gt;</code> (so, as you can see, avoid it if you can).</p>
+<h2 id="the-decimal-number-type-ft-tagged-pointers">The decimal number type, ft tagged pointers.</h2>
+<p><strong>Disclaimer: from now on, the code might only work on 64-bits little-endian architectures (basically all the widely used ones).</strong></p>
+<p>That is the correct name for our <code>Long</code>, <code>Decimal</code>. It is a number like a floating-point one, but much more precise and suitable for financial computations. Its layout is as follows:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 15bits | 113 bits                                             ]
+</span><span>|________|______________________________________________________|
+</span><span> Unused.   The actual decimal number, irrelevant.
+</span></code></pre>
+<p>Although these first bits are unused, they're always zero, and the moment they're not, we may hit UB in the internal implementations of the number.</p>
+<p>If you've ever played with tagged pointers, perhaps you already know what we're getting into here. For any pointer, if the pointee has an alignment bigger than one, we can store as much data in the lower part of the pointer as its alignment. That is because in Rust, all safe reads are aligned, so we can assume that our values are aligned. Note that this data stored in the pointer must be removed before the pointee is read (for obvious reasons). From now on, all our cell values will be of alignment of two, so:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 2bits | 62 bits              ... ]
+</span><span>|_______|__________________________|
+</span><span> Always   The rest of the pointer.
+</span><span> zeroed.
+</span></code></pre>
+<p>Thus, we can exploit these common unused bits to store the <code>enum</code>'s tag, and this is what the <code>tagged_pointer</code> crate will do for us. Explaining tagged pointers beyond the conceptual points is out of scope for this post, so I recommend you read <code>tagged_pointer</code>'s documentation and source if you're interested.</p>
+<h2 id="now-with-unions-also-known-as-c-s-untagged-enums-or-friedrich-transmute">Now with unions, also known as C's untagged enums or Friedrich Transmute.</h2>
+<p>Unions are the backing data for enums, these allow you to define a space of data which may be used by a set of types; but only one at a time, and without taking note of which one it is. The Friederich Transmute pun comes from the fact that these effectively allow you to do the same as <code>std::mem::transmute</code>, since by accessing using a different type than what was written, you're reinterpreting the bytes of a type as a different one.</p>
+<p>For starters, let's copy our previous <code>enum</code>:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span>union CellValue {
+</span><span>    num: Decimal,
+</span><span>    </span><span style="color:#b48ead;">str</span><span>: ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;,
+</span><span>    formula: Rc&lt;Formula&gt;,
+</span><span>    iter: Box&lt;dyn Iterator&lt;Item = CellValue&gt;&gt;,
+</span><span>}
+</span></code></pre>
+<p>The first thing we'll get is a screaming message from rustc telling us to wrap everything that's not <code>Copy</code> in a <code>ManuallyDrop&lt;T&gt;</code>. As it turns out, unions are one of the many reasons why destructors are just a suggestion in Rust, and that is what <code>ManuallyDrop&lt;T&gt;</code> does, remove the drop implementation from its inner. This is needed because there is no info for the compiler to codegen the drop of the union since it can't possibly know what's inside, so it nicely asks us not to ask it to do so. The next thing we'll do is add a field with a <code>TaggedPtr&lt;Aligned, 2&gt;</code> where <code>Aligned</code>'s alignment is two; so that we can use what's inside the union as a tagged pointer to get, set, and remove the tag. As it stands, we get the following:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span>union CellValue {
+</span><span>    tag: TaggedPtr&lt;Aligned, 2&gt;,
+</span><span>    num: Decimal,
+</span><span>    </span><span style="color:#b48ead;">str</span><span>: ManuallyDrop&lt;ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;&gt;,
+</span><span>    formula: ManuallyDrop&lt;Rc&lt;Formula&gt;&gt;,
+</span><span>    iter: ManuallyDrop&lt;Box&lt;dyn Iterator&lt;Item = CellValue&gt;&gt;&gt;,
+</span><span>}
+</span></code></pre>
+<h3 id="manually-implementing-iter-s-dyn">Manually implementing iter's <code>dyn</code>.</h3>
+<p>Before continuing, there's something we should do, desugar <code>Box&lt;dyn ...&gt;</code>. This allows us to remove a pointer of indirection: the whole vtable. It is true that <code>Iterator</code> has like eighty methods we will want to use, but these all have default implementations which we will not override, so we won't need a pointer to a vtable of functions, only to one function (I bet you know where this is going). The only required function is <code>Iterator::next()</code>, so that is the only one we will keep as an opaque one, and we will statically generate the rest. First, let's create a struct with the data:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">struct </span><span>DynIter {
+</span><span>    </span><span style="color:#bf616a;">data</span><span>: TaggedPtr&lt;Aligned, 2&gt;,
+</span><span>    </span><span style="color:#bf616a;">next</span><span>: NonNull&lt;()&gt;, </span><span style="color:#65737e;">// All function pointers are guaranteed not to be null
+</span><span>}
+</span></code></pre>
+<p>Then let's tell the compiler to codegen the rest of the iterator's functions with our opaque <code>next()</code> for us:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">impl </span><span>Iterator </span><span style="color:#b48ead;">for </span><span>DynIter {
+</span><span>    </span><span style="color:#b48ead;">type </span><span>Item = CellValue;
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">next</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) -&gt; Option&lt;</span><span style="color:#b48ead;">Self::</span><span>Item&gt; {
+</span><span>        </span><span style="color:#b48ead;">type </span><span>NextFn = </span><span style="color:#b48ead;">for</span><span>&lt;</span><span style="color:#b48ead;">&#39;a</span><span>&gt; </span><span style="color:#b48ead;">fn</span><span>(&amp;</span><span style="color:#b48ead;">&#39;a mut</span><span> Aligned) -&gt; CellValue;
+</span><span>        </span><span style="color:#b48ead;">unsafe </span><span>{ transmute::&lt;_, NextFn&gt;(</span><span style="color:#bf616a;">self</span><span>.next)(</span><span style="color:#bf616a;">self</span><span>.data.</span><span style="color:#96b5b4;">ptr</span><span>().</span><span style="color:#96b5b4;">as_mut</span><span>()) }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Taking advantage of this, I will be refactoring the unions so as to limit when a value is or is not allowed to be an iterator (this will make our life easier in the coming posts):</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">const </span><span style="color:#d08770;">MASK_BITS</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">2</span><span>;
+</span><span>
+</span><span>union Value {
+</span><span>    tag: TaggedPtr&lt;Aligned, MASK_BITS&gt;,
+</span><span>    num: Decimal,
+</span><span>    </span><span style="color:#b48ead;">str</span><span>: ManuallyDrop&lt;ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;&gt;,
+</span><span>    formula: ManuallyDrop&lt;Rc&lt;Formula&gt;&gt;,
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">struct </span><span>DynIter {
+</span><span>    </span><span style="color:#bf616a;">data</span><span>: TaggedPtr&lt;Aligned, MASK_BITS&gt;,
+</span><span>    </span><span style="color:#bf616a;">next</span><span>: NonNull&lt;()&gt;,
+</span><span>}
+</span><span>
+</span><span>union CellValue {
+</span><span>    tag: TaggedPtr&lt;Aligned, MASK_BITS&gt;,
+</span><span>    value: ManuallyDrop&lt;Value&gt;,
+</span><span>    iter: ManuallyDrop&lt;DynIter&gt;,
+</span><span>}
+</span></code></pre>
+<h3 id="messing-with-taggedptr">Messing with TaggedPtr</h3>
+<p>Now we have to choose the bitmasks for the tags of each value. The <code>0b00</code> and <code>0b01</code> tags will be the fastest ones, so I will be giving them to <code>num</code> and <code>iter</code>, being the no-op one (<code>0b00</code>) for <code>num</code> because I'd rather not mess with it:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">const </span><span style="color:#d08770;">NUM_MASK</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0b00</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">ITER_MASK</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0b01</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">STR_MASK</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0b10</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">FORMULA_MASK</span><span>: </span><span style="color:#b48ead;">usize </span><span>= </span><span style="color:#d08770;">0b11</span><span>;
+</span></code></pre>
+<p>Because <code>TaggedPtr::new(ptr, tag)</code> is the way you construct a new one, we will have to figure out a way to have the <code>ptr</code> it gets to be the same as the low bits of our CellValue. The easiest way out of here would just be to use arguably the most unsafe function in all Rust, the chaotic sibling of Friedrich Transmute: <code>std::mem::transmute_copy</code>. This allows us to copy the CellValue's low 64 bits into <code>TaggedPtr::new()</code>'s first argument, which is likely to get optimized away after inlining:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">impl </span><span>Value {
+</span><span>    </span><span style="color:#b48ead;">unsafe fn </span><span style="color:#8fa1b3;">tag</span><span>(</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">tag</span><span>: </span><span style="color:#b48ead;">usize</span><span>) -&gt; </span><span style="color:#b48ead;">Self </span><span>{
+</span><span>        </span><span style="color:#bf616a;">self</span><span>.tag = TaggedPtr::new(</span><span style="color:#96b5b4;">transmute_copy</span><span>(&amp;</span><span style="color:#bf616a;">self</span><span>), tag);
+</span><span>        </span><span style="color:#bf616a;">self
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">num</span><span>(</span><span style="color:#bf616a;">dec</span><span>: Decimal) -&gt; </span><span style="color:#b48ead;">Self </span><span>{ </span><span style="color:#b48ead;">Self </span><span>{ num: dec } }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">str</span><span>(</span><span style="color:#bf616a;">str</span><span>: ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;) -&gt; </span><span style="color:#b48ead;">Self </span><span>{
+</span><span>        </span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#b48ead;">Self </span><span>{ </span><span style="color:#b48ead;">str</span><span>: ManuallyDrop::new(</span><span style="color:#b48ead;">str</span><span>) }.</span><span style="color:#96b5b4;">tag</span><span>(</span><span style="color:#d08770;">STR_MASK</span><span>) }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">formula</span><span>(</span><span style="color:#bf616a;">f</span><span>: Rc&lt;Aligned&gt;) -&gt; </span><span style="color:#b48ead;">Self </span><span>{
+</span><span>        </span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#b48ead;">Self </span><span>{ formula: ManuallyDrop::new(f) }.</span><span style="color:#96b5b4;">tag</span><span>(</span><span style="color:#d08770;">FORMULA_MASK</span><span>) }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>The last thing I will show on this blog post is how to get back a value from our union, which can be done by checking whether the tag matches the value you want back:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">impl </span><span>CellValue {
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">get_value</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) -&gt; Option&lt;&amp;</span><span style="color:#b48ead;">mut</span><span> Value&gt; {
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#bf616a;">self</span><span>.</span><span style="color:#96b5b4;">downcast_iter</span><span>().</span><span style="color:#96b5b4;">is_none</span><span>() {
+</span><span>            Some(</span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#96b5b4;">transmute</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>.value) })
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{
+</span><span>            None
+</span><span>        }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#b48ead;">pub fn </span><span style="color:#8fa1b3;">get_iter</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) -&gt; Option&lt;&amp;</span><span style="color:#b48ead;">mut</span><span> DynIter&gt; {
+</span><span>        </span><span style="color:#b48ead;">if unsafe </span><span>{ </span><span style="color:#bf616a;">self</span><span>.tag }.</span><span style="color:#96b5b4;">tag</span><span>() == </span><span style="color:#d08770;">ITER_MASK </span><span>{
+</span><span>            Some(</span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#96b5b4;">transmute</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>.iter) })
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{
+</span><span>            None
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">impl </span><span>Value {
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">get_num</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span style="color:#bf616a;">self</span><span>) -&gt; Option&lt;&amp;</span><span style="color:#b48ead;">mut</span><span> Decimal&gt; {
+</span><span>        </span><span style="color:#b48ead;">if unsafe </span><span>{ </span><span style="color:#bf616a;">self</span><span>.tag }.</span><span style="color:#96b5b4;">tag</span><span>() == </span><span style="color:#d08770;">NUM_MASK </span><span>{
+</span><span>            Some(</span><span style="color:#b48ead;">unsafe </span><span>{ </span><span style="color:#96b5b4;">transmute</span><span>(&amp;</span><span style="color:#b48ead;">mut </span><span>*</span><span style="color:#bf616a;">self</span><span>) })
+</span><span>        } </span><span style="color:#b48ead;">else </span><span>{
+</span><span>            None
+</span><span>        }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// the rest are almost the same, so I leave as an
+</span><span>    </span><span style="color:#65737e;">// exercise to the reader creating a macro for them.
+</span><span>}
+</span></code></pre>
+<p>There's only one little thing that we are forgetting, the drop code. Because I left as an exercise for you creating a macro for accessing each field, I will do the same with the drop code that uses it (this is long enough, I'm tired).</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>Unions are not just an archaic tool from the long forgotten era of Dennis Ritchie, they are still a very useful tool which can yield amazing results in the right han<strong>Segmentation fault (core dumped)</strong></p>
+<hr />
+<p>[1]: Note that this is what Niko Matsakis proposed with its <a href="https://smallcultfollowing.com/babysteps/blog/2022/03/29/dyn-can-we-make-dyn-sized/">dyn* blog post</a>, and we will be exploiting this later.</p>
+
+
+<p class="tags-data">
+  
+</p>
+
+      </main>
+      <footer>
+          <!--
+	The MIT License (MIT)
+
+Copyright (c) 2023 Speyll Lyes
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<hr>
+<div id="footer-container">
+  
+  <div>
+    <p>Theme and color theme licensed under <a target="_blank" rel="noopener noreferrer" href="https://en.wikipedia.org/wiki/Licence_MIT">MIT</a>.<br>
+      Built with <a target="_blank" rel="noopener noreferrer" href="https://www.getzola.org">Zola</a> using <a target="_blank" rel="noopener noreferrer" href="https://github.com/Speyll/anemone">anemone</a> theme, <a target="_blank" rel="noopener noreferrer" href="https://speyll.github.io/suCSS/">suCSS</a> framework &amp; <a target="_blank" rel="noopener noreferrer" href="https://github.com/Speyll/veqev">veqev</a>.<br>
+    </p>
+
+  </div>
+  
+  <div>
+    <a class="no-style" target="_blank" rel="noopener noreferrer" href="https://alonely0.github.io/rss.xml" title="Subscribe via RSS for updates."><svg class="icons"><use href="https://alonely0.github.io/icons.svg#rss"></use></svg></a>
+  </div>
+  <script type="module" src="https://alonely0.oxitraffic.com/count.js"></script>
+  
+</div>
+
+
+      </footer>
+</body>
+</html>

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+<meta content="IE=edge" http-equiv="X-UA-Compatible"/>
+<meta content="text/html; charset=UTF-8" http-equiv="content-type"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<meta name="robots" content="index, follow">
+
+
+
+
+
+
+
+
+
+
+
+
+<title>Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul</title>
+
+
+
+<meta name="title" content="Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul">
+
+
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://alonely0.github.io/blog/unions-ca/">
+
+<meta property="og:site_name" content="">
+
+
+<meta property="og:title" content="Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul">
+
+
+
+<meta property="og:image" content="https:&#x2F;&#x2F;alonely0.github.io&#x2F;public&#x2F;favicon.ico">
+
+
+
+<link rel="canonical" href="https://alonely0.github.io/blog/unions-ca/">
+
+<link rel="shortcut icon" type="image/x-icon" href="https://alonely0.github.io/public/favicon.ico">
+
+
+
+
+<link rel="alternate" type="application/atom+xml" title="RSS" href="https://alonely0.github.io/atom.xml"> 
+
+
+
+<link rel="stylesheet" type="text/css" href="https://speyll.github.io/suCSS/reset-min.css"/>
+<link rel="stylesheet" type="text/css" href="https://speyll.github.io/suCSS/suCSS-min.css"/>
+<link rel="stylesheet" type="text/css" href="https://alonely0.github.io/css/style.css"/>
+
+<script src="https://alonely0.github.io/js/script.js" defer></script>
+
+
+</head>
+<body>
+      <header>
+          
+
+  
+
+
+
+      </header>
+      <main>
+          
+<div><a href="..">..</a>/<span class="accent-data">unions-ca</span></div>
+<time datetime="2024-10-21">Published on: <span class="accent-data">2024-10-21</span></time>
+
+<h1>Dissenyant una representació en memòria eficient per als valors d&#x27;un full de càlcul</h1>
+
+
+
+<h2 id="introduccio">Introducció</h2>
+<p>Primer de tot, aquest article s'adreça a un públic ja familiaritzat amb el llenguatge de programació <em>Rust</em>. A més, és recomanable tenir coneixements previs de com les dades es troben a la memòria de l'ordinador és certament recomanable, tot i que molts detalls s'explicaran sempre que calgui.</p>
+<p>Aquest és el primer article d'una nova sèrie on es detallarà com crear un programa de fulls de càlculs, sent la motivació de l'autor les deficiències de tots els que ha fet servir. Concretament, es començarà a escriure aquest nou programa dissenyant la distribució en memòria dels valors que trobem a cada cel·la, i per tant cal enumerar els valors possibles: nombres, caràcters, matrius i fórmules.</p>
+<h2 id="un-primer-intent-la-delegacio-dinamica">Un primer intent: la delegació dinàmica</h2>
+<p>Malgrat que la manera més idiomàtica de representar aquestes dades són les enumeracions, es començarà utilitzant aquest altre mètode a causa de la seva eficiència (128 bits constants; un punter per les dades i altre per les implementacions). Aquesta tècnica requereix definir els trets comuns de totes les dades a una <em>trait</em>, i permetrà tractar-les totes com una mateixa; a continuació, es defineix una que requereix la implementació de <code>Display</code>, per poder representar les dades gràficament:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">trait </span><span>Valor: Display {}
+</span></code></pre>
+<p>D'aquesta manera, es pot definir cada dada concreta i fer-les implementar-la:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">type </span><span>ValorDinàmic = Box&lt;dyn Valor&gt;;
+</span><span style="color:#b48ead;">struct </span><span>Nombre(</span><span style="color:#b48ead;">f64</span><span>);
+</span><span style="color:#b48ead;">struct </span><span>Caràcters(String);
+</span><span style="color:#b48ead;">struct </span><span>Fòrmula(Rc&lt;Fòrmula&gt;);
+</span><span style="color:#b48ead;">struct </span><span>Matriu(Box&lt;dyn Iterator&lt;Item = ValorDinàmic&gt;);
+</span><span>
+</span><span style="color:#65737e;">// implementació omesa
+</span></code></pre>
+<p>Cal mencionar que com tots els valors ocupen només 64 bits (essent equivalents a un punter) si es redueixen els <code>Caràcters</code> a un <code>ThinVec&lt;u8&gt;</code>, no escauen pas abstraccions per emmagatzemar-los. Per tant, es pot concloure que aquest mètode és ineficient i impedeix optimitzacions significatives.</p>
+<h2 id="la-delegacio-d-enumeracio">La delegació d'enumeració</h2>
+<p>Aquesta solució és la més idiomàtica al llenguatge Rust, i generalment ofereix un rendiment molt superior, ja que no hi defineix cap abstracció. Es pot exemplificar amb les següents dades i implementacions:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">enum </span><span>Valor {
+</span><span>    Nombre(</span><span style="color:#b48ead;">f64</span><span>),
+</span><span>    Caràcters(ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;),
+</span><span>    Fòrmula(Rc&lt;Formula&gt;),
+</span><span>    Matriu(Box&lt;dyn Iterator&lt;Item = CellValue&gt;&gt;),
+</span><span>}
+</span><span>
+</span><span style="color:#b48ead;">impl </span><span>Display </span><span style="color:#b48ead;">for </span><span>CellValue {
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">fmt</span><span>(&amp;</span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">f</span><span>: ...) -&gt; ... {
+</span><span>        </span><span style="color:#b48ead;">match </span><span style="color:#bf616a;">self </span><span>{
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Nombre(x) =&gt; x.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Caràcters(x) =&gt; x.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Fòrmula(x) =&gt; x.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>            </span><span style="color:#b48ead;">Self</span><span>::Matriu(x) =&gt; x.</span><span style="color:#96b5b4;">fmt</span><span>(f),
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>A continuació, es mostra la representació en memòria:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 64 bits                | 64 bits               ]
+</span><span>|________________________|_______________________|
+</span><span> Etiqueta; indica          Element en qüestió.
+</span><span> l&#39;element representat.    
+</span></code></pre>
+<p>Tanmateix, s'ha d'esmentar que per motius de precisió, els nombres emprats al programa final no seran de 64 bits, sinó de 128, i per tant l'enumeració s'haurà d'allargar 64 bits, incomplint l'objectiu de mantenir-la en 128:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 64 bits ... | 64 bits               | 64 bits         ... ]
+</span><span>|_________..._|_______________________|_________________..._|
+</span><span> Etiqueta       Meitat d&#39;un nombre, o   L&#39;altra meitat d&#39;un
+</span><span>                qualsevol altre         nombre, o res en
+</span><span>                element sencer.         els altres casos.
+</span></code></pre>
+<h2 id="implementacio-amb-unions-i-punters-etiquetats">Implementació amb unions i punters etiquetats</h2>
+<p>Atès al fet que els 15 bits menys significants del nombre en qüestió sempre són zero, i els punters a les dades tenen una alineació major de dos, es pot fer servir el mètode de punters etiquetats per desar l'etiquetes de dos bits a les dades dins d'aquest espai buit. Per aconseguir-ho escaurà definir les dades a una arcaica unió, pel fet que s'explicarà tot seguit:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span>union Valor {
+</span><span>    nombre: Decimal,
+</span><span>    caràcters: ThinVec&lt;</span><span style="color:#b48ead;">u8</span><span>&gt;,
+</span><span>    fòrmula: Rc&lt;Fòrmula&gt;,
+</span><span>    matriu: Box&lt;dyn Iterator&lt;Item = CellValue&gt;&gt;,
+</span><span>    etiqueta: TaggedPtr&lt;2, ()&gt;
+</span><span>}
+</span></code></pre>
+<p>Com les unions defineixen un espai de memòria que pot estar ocupat per múltiples elements lliurement, també permeten reinterpretar dades, ja que es pot interpretar la dada emmagatzemada <em>A</em> com a una dada possible <em>B</em> a la unió <em>A∪B</em>. Per tant, es pot obtenir l'etiqueta de les dades llegint-la per a després seleccionar la dada correcta, i per acabar només s'ha de definir el valor concret de l'etiqueta a cada cas i tornar a implementar la funcionalitat desitjada:</p>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">const </span><span style="color:#d08770;">ETIQUETA_NOMBRE</span><span>: </span><span style="color:#b48ead;">u8 </span><span>= </span><span style="color:#d08770;">0b00</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">ETIQUETA_CARÀCTERS</span><span>: </span><span style="color:#b48ead;">u8 </span><span>= </span><span style="color:#d08770;">0b10</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">ETIQUETA_FÒRMULA</span><span>: </span><span style="color:#b48ead;">u8 </span><span>= </span><span style="color:#d08770;">0b11</span><span>;
+</span><span style="color:#b48ead;">const </span><span style="color:#d08770;">ETIQUETA_MATRIU</span><span>: </span><span style="color:#b48ead;">u8 </span><span>= </span><span style="color:#d08770;">0b01</span><span>;
+</span><span>
+</span><span style="color:#b48ead;">impl </span><span>Display </span><span style="color:#b48ead;">for </span><span>Valor {
+</span><span>    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">fmt</span><span>(&amp;</span><span style="color:#bf616a;">self</span><span>, </span><span style="color:#bf616a;">f</span><span>: ...) -&gt; ... {
+</span><span>        </span><span style="color:#b48ead;">unsafe </span><span>{
+</span><span>            </span><span style="color:#b48ead;">let</span><span> etiqueta = </span><span style="color:#bf616a;">self</span><span>.etiqueta.</span><span style="color:#96b5b4;">get_tag</span><span>();
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.etiqueta.</span><span style="color:#96b5b4;">set_tag</span><span>(</span><span style="color:#d08770;">0</span><span>);
+</span><span>            </span><span style="color:#b48ead;">let</span><span> fmt = </span><span style="color:#b48ead;">match</span><span> etiqueta {
+</span><span>                </span><span style="color:#d08770;">ETIQUETA_NOMBRE </span><span>=&gt; </span><span style="color:#bf616a;">self</span><span>.nombre.</span><span style="color:#96b5b4;">fmt</span><span>()
+</span><span>                </span><span style="color:#d08770;">ETIQUETA_CARÀCTERS </span><span>=&gt; </span><span style="color:#bf616a;">self</span><span>.caràcters.</span><span style="color:#96b5b4;">fmt</span><span>()
+</span><span>                </span><span style="color:#d08770;">ETIQUETA_FÒRMULA </span><span>=&gt; </span><span style="color:#bf616a;">self</span><span>.fòrmula.</span><span style="color:#96b5b4;">fmt</span><span>()
+</span><span>                </span><span style="color:#d08770;">ETIQUETA_MATRIU </span><span>=&gt; </span><span style="color:#bf616a;">self</span><span>.matriu.</span><span style="color:#96b5b4;">fmt</span><span>()
+</span><span>            }
+</span><span>            </span><span style="color:#bf616a;">self</span><span>.etiqueta.</span><span style="color:#96b5b4;">set_tag</span><span>(etiqueta);
+</span><span>            fmt
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>D'aquesta manera, s'aconsegueix el màxim rendiment i es preserva l'estructura següent:</p>
+<pre data-lang="txt" style="background-color:#2b303b;color:#c0c5ce;" class="language-txt "><code class="language-txt" data-lang="txt"><span>[ 2 bits |       126 bits    ...   ] 
+</span><span>|________|___________________...___|
+</span><span> Etiqueta  Dades emmagatzemades
+</span></code></pre>
+<h2 id="conclusio">Conclusió</h2>
+<p>Les unions són eines increïblement versàtils, i no pas un arcaisme de l'era de Dennis Ritchie. Aquestes ens permeten modelar dades <em>a priori</em> tan simples com una enumeració, i a vegades cal emprar-les si escau el màxim de rendiment, especialment quan s'ha d'interactuar manualment amb els bits de les dades. Tot i això, com s'ha vist a la seva implementació, aquestes contenen riscos a la seguretat de la memòria i s'han d'utilitzar amb cura.</p>
+
+
+<p class="tags-data">
+  
+</p>
+
+      </main>
+      <footer>
+          <!--
+	The MIT License (MIT)
+
+Copyright (c) 2023 Speyll Lyes
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+<hr>
+<div id="footer-container">
+  
+  <div>
+    <p>Theme and color theme licensed under <a target="_blank" rel="noopener noreferrer" href="https://en.wikipedia.org/wiki/Licence_MIT">MIT</a>.<br>
+      Built with <a target="_blank" rel="noopener noreferrer" href="https://www.getzola.org">Zola</a> using <a target="_blank" rel="noopener noreferrer" href="https://github.com/Speyll/anemone">anemone</a> theme, <a target="_blank" rel="noopener noreferrer" href="https://speyll.github.io/suCSS/">suCSS</a> framework &amp; <a target="_blank" rel="noopener noreferrer" href="https://github.com/Speyll/veqev">veqev</a>.<br>
+    </p>
+
+  </div>
+  
+  <div>
+    <a class="no-style" target="_blank" rel="noopener noreferrer" href="https://alonely0.github.io/rss.xml" title="Subscribe via RSS for updates."><svg class="icons"><use href="https://alonely0.github.io/icons.svg#rss"></use></svg></a>
+  </div>
+  <script type="module" src="https://alonely0.oxitraffic.com/count.js"></script>
+  
+</div>
+
+
+      </footer>
+</body>
+</html>
